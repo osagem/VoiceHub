@@ -243,7 +243,7 @@ fn sanitize_removed_actions(mapping: &mut serde_json::Value) {
     };
     // 12 键模型遗产：电源/左右/返回/TV 在 RC003 上不存在（2026-09-13 采集定案），
     // 绑定表里残留的键清掉（不清洗也不致命——resolve 查不到即无动作，纯噪声）。
-    const KEPT_BUTTONS: [&str; 7] = ["up", "ok", "down", "volume_up", "home", "volume_down", "menu"];
+    const KEPT_BUTTONS: [&str; 5] = ["up", "ok", "down", "home", "menu"];
     bindings.retain(|key, _| KEPT_BUTTONS.contains(&key.as_str()));
     for binding in bindings.values_mut() {
         for field in ["single", "double", "long"] {
@@ -281,7 +281,7 @@ mod tests {
         let s = AppSettings::default();
         assert!(!s.onboarding_complete);
         assert_eq!(s.gain_db, 0.0);
-        assert_eq!(s.mapping.bindings.len(), 5, "出厂默认映射应已预置 5 个键");
+        assert_eq!(s.mapping.bindings.len(), 3, "出厂默认映射应已预置 3 个键");
         assert_eq!(s.schema_version, SETTINGS_VERSION);
     }
 

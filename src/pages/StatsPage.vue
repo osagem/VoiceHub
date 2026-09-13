@@ -126,8 +126,7 @@ const chartMax = computed(() => Math.max(1, ...chart.value.map((d) => d.ms)));
 // 按键名直接复用 buttons.key_names.* 字典（此前手写中文，英文界面下错乱）。
 const buttonNames = computed<Record<string, string>>(() => ({
   up: t("buttons.key_names.up"), ok: "OK", down: t("buttons.key_names.down"),
-  volume_up: t("buttons.key_names.volume_up"), home: t("buttons.key_names.home"),
-  volume_down: t("buttons.key_names.volume_down"), menu: t("buttons.key_names.menu"),
+  home: t("buttons.key_names.home"), menu: t("buttons.key_names.menu"),
 }));
 </script>
 

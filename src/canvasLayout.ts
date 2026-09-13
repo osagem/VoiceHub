@@ -34,8 +34,6 @@ export const PLACEMENTS: Placement[] = [
   { button: "menu", side: "left", anchor: { x: 0.295, y: 0.546 }, targetY: 0.7 },
   { button: "ok", side: "right", anchor: { x: 0.502, y: 0.211 }, targetY: 0.34 },
   { button: "down", side: "right", anchor: { x: 0.502, y: 0.286 }, targetY: 0.46 },
-  { button: "volume_up", side: "right", anchor: { x: 0.703, y: 0.363 }, targetY: 0.58 },
-  { button: "volume_down", side: "right", anchor: { x: 0.703, y: 0.45 }, targetY: 0.7 },
 ];
 
 export const VOICE_ANCHOR = { x: 0.759, y: 0.064 };

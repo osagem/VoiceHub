@@ -18,28 +18,26 @@ fn usage_map() -> &'static HashMap<u16, RemoteButton> {
 /// RC003 实有按键（2026-09-13 真机采集定案）+ 语音键。
 /// 12 键模型是 RC001 布局的遗产：电源/返回/TV 三轮采集零报文（机身无键），
 /// 左右键在 RC003 触摸板上不存在（水平滑动=光标移动，产品决策不拦截），
-/// 全部拔除。`hid_usage` 为遥控器 HID 报文里的 usage 值（usage 数组报文，
-/// 2 字节小端；语音键走键盘页 F5，Home/菜单走经典蓝牙键盘页 VK，单独处理）。
+/// 音量±确认无数据源（Windows 只暴露键盘接口不暴露 consumer——参考项目
+/// 2026-09-05 调查归档；macOS 遗产），全部拔除。`hid_usage` 为遥控器 HID
+/// 报文里的 usage 值；语音键走键盘页 F5、Home/菜单走经典蓝牙键盘页 VK，
+/// 单独处理。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RemoteButton {
     Up,
     Ok,
     Down,
-    VolumeUp,
     Home,
-    VolumeDown,
     Menu,
 }
 
 impl RemoteButton {
-    pub const ALL: [RemoteButton; 7] = [
+    pub const ALL: [RemoteButton; 5] = [
         RemoteButton::Up,
         RemoteButton::Ok,
         RemoteButton::Down,
-        RemoteButton::VolumeUp,
         RemoteButton::Home,
-        RemoteButton::VolumeDown,
         RemoteButton::Menu,
     ];
 
@@ -48,9 +46,7 @@ impl RemoteButton {
             RemoteButton::Up => 0x52,
             RemoteButton::Ok => 0x28,
             RemoteButton::Down => 0x51,
-            RemoteButton::VolumeUp => 0x80,
             RemoteButton::Home => 0x4A,
-            RemoteButton::VolumeDown => 0x81,
             RemoteButton::Menu => 0x65,
         }
     }
@@ -66,11 +62,6 @@ impl RemoteButton {
             RemoteButton::Home
                 | RemoteButton::Menu
                 | RemoteButton::Ok
-                // 音量键放开双击/长按槽（如"音量减 = Backspace，双击删整行"）；
-                // 手势识别器本就按键无关，此前的限制只是保守白名单。
-                // 代价：这些键的单击动作要等双击窗口超时才触发（与其他双击键一致）。
-                | RemoteButton::VolumeUp
-                | RemoteButton::VolumeDown
         )
     }
 }
@@ -191,7 +182,7 @@ mod tests {
     fn secondary_buttons_subset() {
         assert!(RemoteButton::Home.supports_secondary());
         assert!(RemoteButton::Ok.supports_secondary());
-        assert!(RemoteButton::VolumeDown.supports_secondary());
+        assert!(RemoteButton::Menu.supports_secondary());
         assert!(!RemoteButton::Up.supports_secondary());
     }
 }

@@ -46,8 +46,6 @@ const keys: KeySpec[] = [
   { id: "back", x: 29.4, y: 36.0, w: 44, h: 44, round: true },
   { id: "home", x: 29.4, y: 45.3, w: 44, h: 44, round: true },
   { id: "menu", x: 29.5, y: 54.6, w: 44, h: 44, round: true },
-  { id: "volume_up", x: 70.3, y: 36.3, w: 44, h: 50, round: false },
-  { id: "volume_down", x: 70.3, y: 45.0, w: 44, h: 50, round: false },
   { id: "tv", x: 70.3, y: 54.7, w: 44, h: 44, round: true },
 ];
 

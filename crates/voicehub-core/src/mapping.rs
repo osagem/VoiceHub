@@ -120,8 +120,6 @@ pub fn default_mapping() -> ButtonMapping {
         RemoteButton::Ok,
         ButtonBinding::single(shortcut(vk::RETURN, 0, "Enter")),
     );
-    mapping.set(RemoteButton::VolumeUp, ButtonBinding::single(ButtonAction::VolumeUp));
-    mapping.set(RemoteButton::VolumeDown, ButtonBinding::single(ButtonAction::VolumeDown));
     mapping
 }
 
@@ -165,9 +163,9 @@ mod tests {
     fn repeat_falls_back_to_single() {
         let mut m = ButtonMapping::default();
         let mut b = ButtonBinding::default();
-        b.single = ButtonAction::VolumeDown;
-        m.set(RemoteButton::VolumeDown, b);
-        assert_eq!(m.resolve(RemoteButton::VolumeDown, Gesture::Repeat), Some(ButtonAction::VolumeDown));
+        b.single = ButtonAction::VolumeUp;
+        m.set(RemoteButton::Menu, b);
+        assert_eq!(m.resolve(RemoteButton::Menu, Gesture::Repeat), Some(ButtonAction::VolumeUp));
     }
 
     #[test]
@@ -202,8 +200,7 @@ mod tests {
                 serde_json::to_value(button).unwrap().as_str().unwrap(),
                 "key() 与 serde 名漂移：{key}"
             );
-            assert!(key.contains('_') == matches!(button, RemoteButton::VolumeUp | RemoteButton::VolumeDown),
-                "非音量键应是无下划线单词：{key}");
+            assert!(!key.contains('_'), "5 键模型键名应是无下划线单词：{key}");
         }
     }
 

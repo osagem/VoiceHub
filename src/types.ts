@@ -23,9 +23,7 @@ export type RemoteButtonId =
   | "up"
   | "ok"
   | "down"
-  | "volume_up"
   | "home"
-  | "volume_down"
   | "menu";
 
 export interface ButtonBinding {

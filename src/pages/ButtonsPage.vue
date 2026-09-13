@@ -42,7 +42,7 @@ const editingSlot = ref<"single" | "double" | "long">("single");
 const showPicker = ref(false);
 
 // 支持双击/长按槽的键（与 Rust supports_secondary 保持一致）。
-const SECONDARY_BUTTONS = new Set(["home", "menu", "ok", "tv", "volume_up", "volume_down"]);
+const SECONDARY_BUTTONS = new Set(["home", "menu", "ok"]);
 
 function selectButton(button: string) {
   selectedButton.value = button as RemoteButtonId;

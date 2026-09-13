@@ -48,14 +48,14 @@ describe('buttons page instant-save UX', () => {
     const emitted: AppSettings[] = []
     const { container, app } = mount(settings, emitted)
 
-    // 选中音量减卡片。
+    // 选中菜单键卡片（音量键已随 5 键模型移除）。
     const card = [...container.querySelectorAll('.mc-card')]
-      .find(el => el.textContent?.includes('音量减键'))
+      .find(el => el.textContent?.includes('菜单键'))
     expect(card).toBeTruthy()
     card!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await nextTick()
 
-    // 双击槽可点（音量键已放开 secondary），打开动作选择器。
+    // 双击槽可点（菜单键支持 secondary），打开动作选择器。
     const slot = [...card!.querySelectorAll('.mc-slot')]
       .find(el => el.textContent?.includes('双击')) as HTMLButtonElement
     expect(slot.disabled).toBe(false)
@@ -70,12 +70,12 @@ describe('buttons page instant-save UX', () => {
     item!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await nextTick()
 
-    // 即时保存：emit 一次，载荷里 volume_down 双击槽 = delete_line。
+    // 即时保存：emit 一次，载荷里 menu 双击槽 = delete_line。
     expect(emitted).toHaveLength(1)
-    const binding = emitted[0].mapping.bindings.volume_down
+    const binding = emitted[0].mapping.bindings.menu
     expect(binding.double).toEqual({ kind: 'delete_line' })
     // 原设置对象不被就地污染（写穿走 emit，由宿主乐观更新）。
-    expect(settings.mapping.bindings.volume_down).toBeUndefined()
+    expect(settings.mapping.bindings.menu).toBeUndefined()
     app.unmount()
   })
 

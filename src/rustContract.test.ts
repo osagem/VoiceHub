@@ -76,9 +76,9 @@ function frontendProviderLiterals(): string[] {
 describe("rust ↔ frontend contract", () => {
   it("RemoteButtonId matches the Rust RemoteButton wire names", () => {
     expect(frontendRemoteButtonIds()).toEqual(rustRemoteButtonWires())
-    // 7 键模型锚点（RC003 真机定案）：防止两侧同时漂移回 12 键。
+    // 5 键模型锚点（RC003 真机定案，音量±无数据源移除）：防两侧漂移。
     expect(rustRemoteButtonWires()).toEqual([
-      "down", "home", "menu", "ok", "up", "volume_down", "volume_up",
+      "down", "home", "menu", "ok", "up",
     ])
   })
 

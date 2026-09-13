@@ -39,7 +39,6 @@ type Slot = (typeof SLOTS)[number];
 /// 键名图标：与遥控器键面符号一致（OK/TV 无符号键用短文本）。
 const buttonIcons: Record<string, string> = {
   up: "▲", ok: "OK", down: "▼", home: "⌂", menu: "☰",
-  volume_up: "＋", volume_down: "−",
 };
 
 function buttonName(button: string): string {

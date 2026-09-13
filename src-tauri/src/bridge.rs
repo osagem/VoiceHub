@@ -52,6 +52,10 @@ pub enum UiEvent {
 
 struct BridgeInner {
     settings: AppSettings,
+    /// 最近一次通过设备校验的遥控器 HID 路径——key_gate 吞掉的 tracked 键
+    /// 边沿要用它重新进入 into_events_for 的设备校验（LL 吞键会阻断同一
+    /// 事件的 Raw Input 投递，主链路此时收不到）。
+    last_remote_kb_path: String,
     statistics: UsageStatistics,
     gesture: GestureRecognizer,
     usage_tracker: UsageTracker,
@@ -75,6 +79,9 @@ pub struct Bridge {
     gate_check_tick: AtomicU64,
     pub remote_voice: Mutex<crate::remote_voice::RemoteVoice>,
     voice_provider: Mutex<Option<(u8, voicehub_core::provider::ProviderConfig)>>,
+    /// dispatcher 通道的发送端副本：key_gate 边沿 sink（钩子线程）用它把
+    /// 吞掉的 tracked 键边沿无阻塞转发进主分发线程。
+    dispatcher_tx: Mutex<Option<std::sync::mpsc::Sender<InternalEvent>>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -105,6 +112,7 @@ impl Bridge {
         let bridge = Arc::new(Self {
             inner: Mutex::new(BridgeInner {
                 settings,
+                last_remote_kb_path: String::new(),
                 statistics,
                 gesture: GestureRecognizer::new(),
                 usage_tracker: UsageTracker::default(),
@@ -123,6 +131,7 @@ impl Bridge {
             gate_check_tick: AtomicU64::new(0),
             remote_voice: Mutex::new(Default::default()),
             voice_provider: Mutex::new(None),
+            dispatcher_tx: Mutex::new(None),
         });
 
         // HID 监视。
@@ -181,8 +190,22 @@ impl Bridge {
                 })
                 .expect("spawn dispatcher");
         }
+        *lock(&bridge.dispatcher_tx) = Some(tx.clone());
 
         key_gate::install();
+
+        // tracked 键边沿 sink：钩子线程只做无阻塞转发（channel send），
+        // 映射执行在 dispatcher 线程——tap 注入带 sleep，绝不能卡键盘管线。
+        {
+            let sink_bridge = bridge.clone();
+            key_gate::set_edge_sink(std::sync::Arc::new(move |vk, pressed| {
+                sink_bridge.feed_remote_kb_edge(vk, pressed);
+            }));
+        }
+        {
+            let inner = lock(&bridge.inner);
+            key_gate::set_tracked_keys(tracked_mask(&inner.settings));
+        }
 
         // 恢复上次的端点与连接。
         let (endpoint, device_id, onboarding_done) = {
@@ -292,6 +315,7 @@ impl Bridge {
 
     fn handle_hid(self: &Arc<Self>, input: HidInput) {
         let mut inner = lock(&self.inner);
+        inner.last_remote_kb_path = input.device_path.clone();
         let events = input.into_events_for(inner.settings.paired_device_id.as_deref());
         let mut gestures = Vec::new();
         let mut counted = false;
@@ -730,6 +754,28 @@ impl Bridge {
         self.persist_statistics();
     }
 
+    /// key_gate 边沿 sink 的入口（钩子线程调用，仅做 channel 转发）：
+    /// 吞掉的 Home/菜单键转成 usage 集合，套最近的真实遥控器设备路径
+    /// 走与 Raw Input 完全相同的主链路（差分 → 手势 → 动作）。
+    fn feed_remote_kb_edge(self: &Arc<Self>, vk: u32, pressed: bool) {
+        let usage = match vk {
+            0x24 => RemoteButton::Home.hid_usage(),
+            0x5D => RemoteButton::Menu.hid_usage(),
+            _ => return,
+        };
+        let path = lock(&self.inner).last_remote_kb_path.clone();
+        if path.is_empty() {
+            log::debug!("[key-gate] tracked edge dropped: no remote path seen yet");
+            return;
+        }
+        let events = vec![HidEvent::UsageSet(if pressed { vec![usage] } else { Vec::new() })];
+        let input = HidInput { device_path: path, events };
+        let tx = lock(&self.dispatcher_tx);
+        if let Some(tx) = tx.as_ref() {
+            let _ = tx.send(InternalEvent::Hid(input));
+        }
+    }
+
     fn trigger_provider(self: &Arc<Self>, trigger: ProviderTrigger) {
         use voicehub_windows::send_input::{press, release, tap, KeyChord};
         let result = match trigger {
@@ -818,6 +864,8 @@ impl Bridge {
                 settings.provider.kind == voicehub_core::provider::ProviderKind::SayIt,
             );
         }
+        // 映射变化即同步 tracked 键接管集（Home/菜单配置了动作或 PTT 即接管）。
+        key_gate::set_tracked_keys(tracked_mask(&settings));
         Ok(())
     }
 
@@ -923,6 +971,26 @@ impl Bridge {
     pub fn set_gain(&self, gain_db: f64) {
         self.ble.set_gain(gain_db);
     }
+}
+
+/// 映射里配置了任意动作或 PTT 的 tracked 键（Home/菜单）位掩码——
+/// 「配置即接管」：一旦配置，遥控器在线期间该键物理事件由映射接管。
+fn tracked_mask(settings: &AppSettings) -> u32 {
+    let configured = |key: &str| {
+        settings
+            .mapping
+            .bindings
+            .get(key)
+            .is_some_and(|binding| *binding != voicehub_core::mapping::ButtonBinding::default())
+    };
+    let mut mask = 0;
+    if configured("home") {
+        mask |= key_gate::TRACK_HOME;
+    }
+    if configured("menu") {
+        mask |= key_gate::TRACK_APPS;
+    }
+    mask
 }
 
 fn action_label(action: &ButtonAction) -> String {

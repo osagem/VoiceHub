@@ -11,8 +11,16 @@
 //!   遥控器在线期间直接吞掉全部 F5，代价是真键盘 F5 暂时失效（Ctrl+R 不受影响）。
 //! - UP 沿：只按配对裁决——本次按住的所有 DOWN 全被吞才吞 UP，
 //!   任何 DOWN 泄漏则 UP 必放行（宁送孤立 UP，不留 OS 粘键）。
+//!
+//! tracked 键接管（Home / 菜单）：这两个键走经典蓝牙键盘通道，与物理键盘
+//! 同 VK 单事件流——LL 钩子无法区分来源，也没有 GATT/consumer 先导信号可
+//! 做归因（参考实现的 60ms 等待方案依赖双事件流，此处不成立）。语义取
+//! 「配置即接管」：键在映射里配置了动作且遥控器在线 → 吞掉物理事件
+//! （原生透传行为如 Home 跳行首 / Apps 弹菜单随之消失），边沿经 sink 喂
+//! 回宿主映射链路。代价：遥控器在线期间物理键盘的同名键也被接管。
 
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
@@ -22,6 +30,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 const VK_F5: u32 = 0x74;
+const VK_HOME: u32 = 0x24;
+const VK_APPS: u32 = 0x5D;
 
 /// 武装窗口：GATT 控制通知到达后的一小段时间（遥控器 HID F5 通常
 /// 晚 60–90ms 到达；应用被后台节流时工作线程可能再拖 120ms）。
@@ -40,6 +50,19 @@ static REMOTE_CONNECTED: AtomicBool = AtomicBool::new(false);
 /// 安装并发时双线程双钩子（双钩子吞键无害，但退出只卸一个会泄漏到进程结束）。
 static INSTALL_LOCK: AtomicBool = AtomicBool::new(false);
 
+/// tracked 键位掩码：bit0 = HOME，bit1 = APPS（配置即接管）。
+static TRACKED_MASK: AtomicU32 = AtomicU32::new(0);
+/// tracked 键各自独立的按住配对（与 F5 的 HOLD_PAIRING 同语义，按 VK 隔离）。
+static HOLD_PAIRING_HOME: AtomicU32 = AtomicU32::new(HOLD_NONE);
+static HOLD_PAIRING_APPS: AtomicU32 = AtomicU32::new(HOLD_NONE);
+
+/// 被吞 tracked 键的边沿投递端（宿主注册；闭包内转发到 dispatcher 线程，
+/// 钩子线程绝不能同步执行映射动作——tap 注入带 sleep 会阻塞键盘管线）。
+static EDGE_SINK: OnceLock<Arc<dyn Fn(u32, bool) + Send + Sync>> = OnceLock::new();
+
+pub const TRACK_HOME: u32 = 1 << 0;
+pub const TRACK_APPS: u32 = 1 << 1;
+
 pub const HOLD_NONE: u32 = 0;
 pub const HOLD_SWALLOWED_ALL: u32 = 1;
 pub const HOLD_LEAKED: u32 = 2;
@@ -52,7 +75,8 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-/// 纯决策（单测覆盖）。`persistent` = 常驻武装生效中（开关开且遥控器在线）。
+/// 纯决策（单测覆盖）。`persistent` = 常驻武装生效中（开关开且遥控器在线）；
+/// `tracked` = 该 vk 是配置即接管的键（Home/菜单）。
 pub fn decide(
     vk_code: u32,
     is_key_up: bool,
@@ -60,14 +84,20 @@ pub fn decide(
     armed_now: bool,
     hold_pairing: u32,
     persistent: bool,
+    tracked: bool,
 ) -> bool {
-    if vk_code != VK_F5 {
+    if vk_code != VK_F5 && !tracked {
         return false;
     }
     if is_key_up {
         return hold_pairing == HOLD_SWALLOWED_ALL;
     }
-    session || armed_now || persistent
+    if vk_code == VK_F5 {
+        session || armed_now || persistent
+    } else {
+        // tracked 键只看常驻状态：遥控器离线时物理键盘原生行为完整保留。
+        tracked && persistent
+    }
 }
 
 /// 纯状态转移：DOWN 裁决后更新配对。
@@ -112,6 +142,35 @@ fn persistent_armed() -> bool {
 /// 诊断用：常驻武装当前是否激活（遥控器在线且开关开启）。
 pub fn is_persistent_armed() -> bool {
     persistent_armed()
+}
+
+/// tracked 键集合同步（宿主按映射配置计算：键上配置了任意动作或 PTT 即接管）。
+pub fn set_tracked_keys(mask: u32) {
+    TRACKED_MASK.store(mask & (TRACK_HOME | TRACK_APPS), Ordering::Relaxed);
+}
+
+/// 注册被吞 tracked 键的边沿投递端。闭包在钩子线程被调——只许做无阻塞
+/// 转发（如 channel send），映射执行必须在别的线程。
+pub fn set_edge_sink(sink: Arc<dyn Fn(u32, bool) + Send + Sync>) {
+    let _ = EDGE_SINK.set(sink);
+}
+
+fn tracked(vk: u32) -> bool {
+    let mask = TRACKED_MASK.load(Ordering::Relaxed);
+    match vk {
+        VK_HOME => mask & TRACK_HOME != 0,
+        VK_APPS => mask & TRACK_APPS != 0,
+        _ => false,
+    }
+}
+
+/// tracked 键的配对槽（按 VK 隔离，长按互不干扰）。
+fn pairing_slot(vk: u32) -> Option<&'static AtomicU32> {
+    match vk {
+        VK_HOME => Some(&HOLD_PAIRING_HOME),
+        VK_APPS => Some(&HOLD_PAIRING_APPS),
+        _ => None,
+    }
 }
 
 fn armed() -> bool {
@@ -200,15 +259,42 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
         let is_injected =
             (kb.flags & LLKHF_INJECTED).0 != 0 || (kb.flags & LLKHF_LOWER_IL_INJECTED).0 != 0;
         if !is_injected {
+            let vk = kb.vkCode as u32;
             let is_up = !(wparam.0 as u32 == WM_KEYDOWN || wparam.0 as u32 == WM_SYSKEYDOWN);
+
+            // tracked 键（Home/菜单）走独立裁决：各自配对槽 + 边沿喂 sink。
+            if let Some(slot) = pairing_slot(vk) {
+                if tracked(vk) {
+                    let pairing = slot.load(Ordering::Relaxed);
+                    if decide(vk, is_up, false, false, pairing, persistent_armed(), true) {
+                        if !is_up {
+                            slot.store(track_down(pairing, true), Ordering::Relaxed);
+                        } else {
+                            slot.store(HOLD_NONE, Ordering::Relaxed);
+                        }
+                        if let Some(sink) = EDGE_SINK.get() {
+                            sink(vk, !is_up);
+                        }
+                        return LRESULT(1);
+                    }
+                    if !is_up {
+                        slot.store(track_down(pairing, false), Ordering::Relaxed);
+                    }
+                    // tracked 键未被接管（遥控器离线/开关关）：透传，
+                    // Raw Input 主链路照常工作，边沿不会被喂（无双发）。
+                }
+                return CallNextHookEx(None, code, wparam, lparam);
+            }
+
             let pairing = HOLD_PAIRING.load(Ordering::Relaxed);
             let swallow = decide(
-                kb.vkCode,
+                vk,
                 is_up,
                 SESSION_ACTIVE.load(Ordering::Relaxed),
                 armed(),
                 pairing,
                 persistent_armed(),
+                false,
             );
             if swallow {
                 if !is_up {
@@ -222,7 +308,7 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
                 }
                 return LRESULT(1);
             }
-            if !is_up && kb.vkCode == VK_F5 {
+            if !is_up && vk == VK_F5 {
                 // 泄漏只在配对状态转换时记一次（长按的重复 F5 不刷屏）。
                 // 竞态成因：F5 走 HID 通道，控制通知走 GATT 通道，F5 先到则
                 // 武装窗口未开——此时前台（如浏览器）会收到真实 F5（刷新）。
@@ -250,32 +336,32 @@ mod tests {
 
     #[test]
     fn only_f5_down_swallowed_when_armed_or_session() {
-        assert!(!decide(0x41, false, false, false, HOLD_NONE, false));
-        assert!(!decide(0x74, false, false, false, HOLD_NONE, false));
-        assert!(decide(0x74, false, true, false, HOLD_NONE, false));
-        assert!(decide(0x74, false, false, true, HOLD_NONE, false));
+        assert!(!decide(0x41, false, false, false, HOLD_NONE, false, false));
+        assert!(!decide(0x74, false, false, false, HOLD_NONE, false, false));
+        assert!(decide(0x74, false, true, false, HOLD_NONE, false, false));
+        assert!(decide(0x74, false, false, true, HOLD_NONE, false, false));
     }
 
     #[test]
     fn persistent_arming_swallows_despite_lost_timing_signals() {
         // 常驻武装：GATT 通知缺失/迟到、无会话时，F5 DOWN 仍被吞——
         // 这是"首个 F5 泄漏刷新页面"竞态的根治层。
-        assert!(decide(0x74, false, false, false, HOLD_NONE, true));
+        assert!(decide(0x74, false, false, false, HOLD_NONE, true, false));
         // 配对语义保持：全吞的按住 → 吞 UP。
-        assert!(decide(0x74, true, false, false, HOLD_SWALLOWED_ALL, true));
+        assert!(decide(0x74, true, false, false, HOLD_SWALLOWED_ALL, true, false));
         // 非 F5 不受常驻武装影响。
-        assert!(!decide(0x41, false, false, false, HOLD_NONE, true));
+        assert!(!decide(0x41, false, false, false, HOLD_NONE, true, false));
     }
 
     #[test]
     fn up_edge_follows_down_pairing() {
         // 全吞的按住 → 吞 UP。
-        assert!(decide(0x74, true, false, false, HOLD_SWALLOWED_ALL, false));
+        assert!(decide(0x74, true, false, false, HOLD_SWALLOWED_ALL, false, false));
         // 任一 DOWN 泄漏 / 配对未知 → 放行 UP，即使会话仍激活。
-        assert!(!decide(0x74, true, true, true, HOLD_LEAKED, false));
-        assert!(!decide(0x74, true, true, true, HOLD_NONE, false));
+        assert!(!decide(0x74, true, true, true, HOLD_LEAKED, false, false));
+        assert!(!decide(0x74, true, true, true, HOLD_NONE, false, false));
         // 非 F5 的 UP 永不吞。
-        assert!(!decide(0x41, true, true, true, HOLD_SWALLOWED_ALL, false));
+        assert!(!decide(0x41, true, true, true, HOLD_SWALLOWED_ALL, false, false));
     }
 
     #[test]
@@ -284,5 +370,32 @@ mod tests {
         assert_eq!(track_down(HOLD_SWALLOWED_ALL, false), HOLD_LEAKED);
         assert_eq!(track_down(HOLD_LEAKED, true), HOLD_LEAKED);
         assert_eq!(track_down(HOLD_NONE, false), HOLD_LEAKED);
+    }
+
+    #[test]
+    fn tracked_keys_take_over_only_while_remote_online() {
+        // 配置即接管：tracked + 常驻（遥控器在线且开关开）→ 吞 DOWN。
+        assert!(decide(VK_HOME, false, false, false, HOLD_NONE, true, true));
+        assert!(decide(VK_APPS, false, false, false, HOLD_NONE, true, true));
+        // 遥控器离线：物理键盘原生行为完整保留（Home 跳行首 / Apps 弹菜单）。
+        assert!(!decide(VK_HOME, false, false, false, HOLD_NONE, false, true));
+        // 未 tracked 的普通键不受影响。
+        assert!(!decide(0x41, false, false, false, HOLD_NONE, true, false));
+        // UP 沿照配对裁决（防粘键语义与 F5 一致）。
+        assert!(decide(VK_HOME, true, false, false, HOLD_SWALLOWED_ALL, true, true));
+        assert!(!decide(VK_HOME, true, false, false, HOLD_LEAKED, true, true));
+    }
+
+    #[test]
+    fn tracked_mask_filters_unknown_bits() {
+        // 集合 API 只接受已知位。
+        TRACKED_MASK.store(0, Ordering::Relaxed);
+        set_tracked_keys(TRACK_HOME | TRACK_APPS | 0xF0);
+        assert_eq!(TRACKED_MASK.load(Ordering::Relaxed), TRACK_HOME | TRACK_APPS);
+        assert!(tracked(VK_HOME));
+        assert!(tracked(VK_APPS));
+        assert!(!tracked(0x41));
+        TRACKED_MASK.store(0, Ordering::Relaxed);
+        assert!(!tracked(VK_HOME));
     }
 }

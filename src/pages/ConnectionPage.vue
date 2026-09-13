@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { openUrl, openPath } from "@tauri-apps/plugin-opener";
 import { api } from "../api";
 import { useI18n } from "../i18n";
+import { recordKeyEvent } from "../keyRecorder";
 import CableInstaller from "../components/CableInstaller.vue";
 import PageSkeleton from "../components/PageSkeleton.vue";
 import SaveBadge from "../components/SaveBadge.vue";
@@ -184,6 +185,8 @@ function setCustomMode(mode: "toggle" | "hold") {
 // Custom provider 触发键录制（keydown 捕获 → Windows VK；
 // 与 ActionPicker 的录制器同一套 MOD 约定：Alt=1 Ctrl=2 Shift=4 Win=8）。
 const recordingCustomKey = ref(false);
+// 修饰键暂存：按下时不确定，松开且期间无主键介入才录单键（keyRecorder.ts）。
+const pendingModifierVk = ref<number | null>(null);
 
 function customKeyLabel(vk: number, modifiers: number): string {
   if (!vk) return t("connection.provider.custom_key_unset");
@@ -214,24 +217,28 @@ function onCustomKeyCapture(event: KeyboardEvent) {
   if (!recordingCustomKey.value) return;
   event.preventDefault();
   event.stopPropagation();
-  // 纯修饰键按下不算完成（等主键）。
-  if (["Control", "Shift", "Alt", "Meta"].includes(event.key)) return;
-  const vk = event.which || event.keyCode;
-  if (!vk || !draft.value) return;
-  let modifiers = 0;
-  if (event.ctrlKey) modifiers |= 2;
-  if (event.shiftKey) modifiers |= 4;
-  if (event.altKey) modifiers |= 1;
-  if (event.metaKey) modifiers |= 8;
+  const result = recordKeyEvent(event, pendingModifierVk.value);
+  if (result.kind === "pending") {
+    pendingModifierVk.value = result.vk;
+    return;
+  }
+  if (result.kind !== "done" || !draft.value) return;
+  pendingModifierVk.value = null;
   draft.value = {
     ...draft.value,
-    provider: { ...draft.value.provider, customVk: vk, customModifiers: modifiers },
+    provider: { ...draft.value.provider, customVk: result.vk, customModifiers: result.modifiers },
   };
   recordingCustomKey.value = false;
 }
 
-onMounted(() => window.addEventListener("keydown", onCustomKeyCapture, true));
-onBeforeUnmount(() => window.removeEventListener("keydown", onCustomKeyCapture, true));
+onMounted(() => {
+  window.addEventListener("keydown", onCustomKeyCapture, true);
+  window.addEventListener("keyup", onCustomKeyCapture, true);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onCustomKeyCapture, true);
+  window.removeEventListener("keyup", onCustomKeyCapture, true);
+});
 
 function phaseLabel(phase: string | undefined): string {
   if (!phase) return "—";

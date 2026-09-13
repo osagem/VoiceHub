@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "../i18n";
 import { actionLabel } from "../actionLabel";
+import { recordKeyEvent } from "../keyRecorder";
 import type { ButtonAction } from "../types";
 
 const props = defineProps<{
@@ -86,19 +87,21 @@ function vkToLabel(vk: number): string {
   return `0x${vk.toString(16).toUpperCase()}`;
 }
 
+const pendingModifierVk = ref<number | null>(null);
+
 function onRecordKey(event: KeyboardEvent) {
   if (!recording.value) return;
   event.preventDefault();
   event.stopPropagation();
-  // 忽略纯修饰键按下。
-  if (["Control", "Shift", "Alt", "Meta"].includes(event.key)) return;
-  const vk = event.which || event.keyCode;
-  if (!vk) return;
-  let modifiers = 0;
-  if (event.ctrlKey) modifiers |= MOD_CONTROL;
-  if (event.shiftKey) modifiers |= MOD_SHIFT;
-  if (event.altKey) modifiers |= MOD_ALT;
-  if (event.metaKey) modifiers |= MOD_WIN;
+  const result = recordKeyEvent(event, pendingModifierVk.value);
+  if (result.kind === "pending") {
+    pendingModifierVk.value = result.vk;
+    return;
+  }
+  if (result.kind !== "done") return;
+  pendingModifierVk.value = null;
+  const vk = result.vk;
+  const modifiers = result.modifiers;
   customVk.value = vk;
   customModifiers.value = modifiers;
   const parts = [
@@ -111,8 +114,14 @@ function onRecordKey(event: KeyboardEvent) {
   recording.value = false;
 }
 
-onMounted(() => window.addEventListener("keydown", onRecordKey, true));
-onBeforeUnmount(() => window.removeEventListener("keydown", onRecordKey, true));
+onMounted(() => {
+  window.addEventListener("keydown", onRecordKey, true);
+  window.addEventListener("keyup", onRecordKey, true);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onRecordKey, true);
+  window.removeEventListener("keyup", onRecordKey, true);
+});
 
 function confirmCustomShortcut() {
   if (!customVk.value) return;

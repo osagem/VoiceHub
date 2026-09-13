@@ -276,8 +276,13 @@ pub fn run() {
             init_logging(app.handle());
             voicehub_sayit::setup(app.handle())?;
 
+            // 引擎快捷键钩子跟随语音工具：非内嵌引擎（自定义/无）时停钩，
+            // 防止 HF 默认右 Alt 等物理键被引擎钩子消费（误唤醒内嵌录音）。
+            let embedded_engine =
+                settings.provider.kind == voicehub_core::provider::ProviderKind::SayIt;
             let bridge = Bridge::start(app.handle().clone(), store, settings);
             app.manage(bridge);
+            voicehub_sayit::set_hotkey_hooks_enabled(app.handle(), embedded_engine);
 
             // 窗口关闭 → 隐藏到托盘（常驻）。
             let main_window = app.get_webview_window("main").expect("main window");

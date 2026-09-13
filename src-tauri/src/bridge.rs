@@ -767,6 +767,7 @@ impl Bridge {
         let language_changed;
         let voice_mode_changed;
         let f5_gate_changed;
+        let engine_hooks_changed;
         {
             let mut inner = lock(&self.inner);
             // 锁内只 diff + 更新内存；写盘（含 sync_all）挪到锁外——锁内写盘会把
@@ -778,6 +779,7 @@ impl Bridge {
             language_changed = settings.language != previous.language;
             voice_mode_changed = settings.voice_key_trigger_mode != previous.voice_key_trigger_mode;
             f5_gate_changed = settings.f5_gate_enabled != previous.f5_gate_enabled;
+            engine_hooks_changed = settings.provider.kind != previous.provider.kind;
             if settings.paired_device_id != previous.paired_device_id {
                 inner.gesture.reset();
                 inner.usage_tracker = UsageTracker::default();
@@ -808,6 +810,13 @@ impl Bridge {
         }
         if f5_gate_changed {
             key_gate::set_gate_enabled(settings.f5_gate_enabled);
+        }
+        if engine_hooks_changed {
+            // 语音工具切进/切出内嵌引擎：引擎快捷键钩子随之启停。
+            voicehub_sayit::set_hotkey_hooks_enabled(
+                &self.app,
+                settings.provider.kind == voicehub_core::provider::ProviderKind::SayIt,
+            );
         }
         Ok(())
     }

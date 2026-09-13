@@ -86,6 +86,17 @@ const MECHANICAL_PATCHES = [
 // ---------------------------------------------------------------------------
 const MANUAL_PATCHES = [
   {
+    id: 'hotkey-hooks-toggle',
+    files: ['native/src/lib.rs'],
+    describe: 'Host-facing set_hotkey_hooks_enabled(): when the dictation tool is not the embedded engine the SayIt keyboard hook is stopped, so the default HF (right Alt) / PTT (right Ctrl) keys no longer wake embedded recording or swallow the host trigger-key recorder.',
+    verify() {
+      const code = readVendor('native/src/lib.rs');
+      if (!code.includes('pub fn set_hotkey_hooks_enabled')) return 'lib.rs lost set_hotkey_hooks_enabled';
+      if (!code.includes('manager.stop()')) return 'set_hotkey_hooks_enabled lost the stop branch';
+      return null;
+    },
+  },
+  {
     id: 'simulator-nav-removed',
     files: ['frontend/src/components/Sidebar.tsx'],
     describe: 'The simulator nav entry is removed from the remote workspace sidebar: the simulator page itself was cut from the hardware app, so the link 404s.',

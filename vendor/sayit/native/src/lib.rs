@@ -23,6 +23,25 @@ pub fn configure(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::W
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
 }
 
+/// VoiceHub 宿主专用：按当前语音工具启停引擎快捷键钩子。
+/// 内嵌引擎模式保持钩子（用户可用 SayIt 快捷键）；自定义/无时停钩——
+/// HF 默认右 Alt、PTT 默认右 Ctrl 会被钩子消费，既误唤醒内嵌录音，
+/// 也吞掉宿主触发键录制器正在捕获的按键（豆包适配实测踩坑）。
+pub fn set_hotkey_hooks_enabled(app: &tauri::AppHandle, enabled: bool) {
+    let manager = app.state::<keyboard::KeyboardHookManager>();
+    if !enabled {
+        manager.stop();
+        return;
+    }
+    let ptt = app.state::<storage::Storage>()
+        .get("shortcutPTT", None).as_str().unwrap_or("ControlRight").to_owned();
+    let hf = app.state::<storage::Storage>()
+        .get("shortcutHandsFree", None).as_str().unwrap_or("AltRight").to_owned();
+    let ai = app.state::<storage::Storage>()
+        .get("shortcutToggleAi", None).as_str().unwrap_or("").to_owned();
+    manager.start(app, &ptt, &hf, &ai);
+}
+
 pub fn setup(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let data = dirs::data_local_dir().ok_or("Local application data directory unavailable")?
         .join("app.soundbridge.windows/sayit");

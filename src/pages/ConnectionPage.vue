@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { openUrl, openPath } from "@tauri-apps/plugin-opener";
 import { api } from "../api";
 import { useI18n } from "../i18n";
-import { recordKeyEvent } from "../keyRecorder";
+import { createKeyRecorder } from "../keyRecorder";
 import CableInstaller from "../components/CableInstaller.vue";
 import PageSkeleton from "../components/PageSkeleton.vue";
 import SaveBadge from "../components/SaveBadge.vue";
@@ -185,8 +185,15 @@ function setCustomMode(mode: "toggle" | "hold") {
 // Custom provider 触发键录制（keydown 捕获 → Windows VK；
 // 与 ActionPicker 的录制器同一套 MOD 约定：Alt=1 Ctrl=2 Shift=4 Win=8）。
 const recordingCustomKey = ref(false);
-// 修饰键暂存：按下时不确定，松开且期间无主键介入才录单键（keyRecorder.ts）。
-const pendingModifierVk = ref<number | null>(null);
+// 修饰键按住栈 + 单键/组合键裁决在 keyRecorder 工厂内。
+const recordTriggerKey = createKeyRecorder((vk, modifiers) => {
+  if (!draft.value) return;
+  draft.value = {
+    ...draft.value,
+    provider: { ...draft.value.provider, customVk: vk, customModifiers: modifiers },
+  };
+  recordingCustomKey.value = false;
+});
 
 function customKeyLabel(vk: number, modifiers: number): string {
   if (!vk) return t("connection.provider.custom_key_unset");
@@ -217,18 +224,7 @@ function onCustomKeyCapture(event: KeyboardEvent) {
   if (!recordingCustomKey.value) return;
   event.preventDefault();
   event.stopPropagation();
-  const result = recordKeyEvent(event, pendingModifierVk.value);
-  if (result.kind === "pending") {
-    pendingModifierVk.value = result.vk;
-    return;
-  }
-  if (result.kind !== "done" || !draft.value) return;
-  pendingModifierVk.value = null;
-  draft.value = {
-    ...draft.value,
-    provider: { ...draft.value.provider, customVk: result.vk, customModifiers: result.modifiers },
-  };
-  recordingCustomKey.value = false;
+  recordTriggerKey(event);
 }
 
 onMounted(() => {

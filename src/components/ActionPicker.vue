@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "../i18n";
 import { actionLabel } from "../actionLabel";
-import { recordKeyEvent } from "../keyRecorder";
+import { createKeyRecorder } from "../keyRecorder";
 import type { ButtonAction } from "../types";
 
 const props = defineProps<{
@@ -87,21 +87,7 @@ function vkToLabel(vk: number): string {
   return `0x${vk.toString(16).toUpperCase()}`;
 }
 
-const pendingModifierVk = ref<number | null>(null);
-
-function onRecordKey(event: KeyboardEvent) {
-  if (!recording.value) return;
-  event.preventDefault();
-  event.stopPropagation();
-  const result = recordKeyEvent(event, pendingModifierVk.value);
-  if (result.kind === "pending") {
-    pendingModifierVk.value = result.vk;
-    return;
-  }
-  if (result.kind !== "done") return;
-  pendingModifierVk.value = null;
-  const vk = result.vk;
-  const modifiers = result.modifiers;
+const recordSlotKey = createKeyRecorder((vk, modifiers) => {
   customVk.value = vk;
   customModifiers.value = modifiers;
   const parts = [
@@ -112,6 +98,13 @@ function onRecordKey(event: KeyboardEvent) {
   ].filter(Boolean);
   customLabel.value = [...parts, vkToLabel(vk)].join("+");
   recording.value = false;
+});
+
+function onRecordKey(event: KeyboardEvent) {
+  if (!recording.value) return;
+  event.preventDefault();
+  event.stopPropagation();
+  recordSlotKey(event);
 }
 
 onMounted(() => {

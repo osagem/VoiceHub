@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { recordKeyEvent } from "./keyRecorder";
+import { createKeyRecorder } from "./keyRecorder";
 
 function keyEvent(type: "keydown" | "keyup", init: { code: string; key: string; keyCode?: number; ctrlKey?: boolean; altKey?: boolean; shiftKey?: boolean }): KeyboardEvent {
   const event = new KeyboardEvent(type, { code: init.code, key: init.key, ctrlKey: init.ctrlKey, altKey: init.altKey, shiftKey: init.shiftKey });
@@ -11,12 +11,18 @@ function keyEvent(type: "keydown" | "keyup", init: { code: string; key: string; 
   return event;
 }
 
+function capture(results: Array<{ vk: number; modifiers: number }>) {
+  return createKeyRecorder((vk, modifiers) => results.push({ vk, modifiers }));
+}
+
 describe("key recorder", () => {
   it("records a lone right Alt on keyup (Doubao adaptation case)", () => {
-    const down = recordKeyEvent(keyEvent("keydown", { code: "AltRight", key: "Alt" }), null);
-    expect(down).toEqual({ kind: "pending", vk: 0xa5 });
-    const up = recordKeyEvent(keyEvent("keyup", { code: "AltRight", key: "Alt" }), 0xa5);
-    expect(up).toEqual({ kind: "done", vk: 0xa5, modifiers: 0 });
+    const done: Array<{ vk: number; modifiers: number }> = [];
+    const record = capture(done);
+    record(keyEvent("keydown", { code: "AltRight", key: "Alt" }));
+    expect(done).toEqual([]);
+    record(keyEvent("keyup", { code: "AltRight", key: "Alt" }));
+    expect(done).toEqual([{ vk: 0xa5, modifiers: 0 }]);
   });
 
   it("left and right modifiers map to distinct VKs", () => {
@@ -26,30 +32,42 @@ describe("key recorder", () => {
       ["AltLeft", 0xa4], ["AltRight", 0xa5],
     ];
     for (const [code, vk] of cases) {
-      expect(recordKeyEvent(keyEvent("keydown", { code, key: "?" }), null)).toEqual({ kind: "pending", vk });
+      const done: Array<{ vk: number; modifiers: number }> = [];
+      const record = capture(done);
+      record(keyEvent("keydown", { code, key: "?" }));
+      record(keyEvent("keyup", { code, key: "?" }));
+      expect(done).toEqual([{ vk, modifiers: 0 }]);
     }
   });
 
-  it("a main key after a modifier confirms the combo and voids the pending single key", () => {
-    const ctrlDown = recordKeyEvent(keyEvent("keydown", { code: "ControlLeft", key: "Control" }), null);
-    expect(ctrlDown).toEqual({ kind: "pending", vk: 0xa2 });
-    const j = recordKeyEvent(
-      keyEvent("keydown", { code: "KeyJ", key: "j", keyCode: 0x4a, ctrlKey: true, altKey: true }),
-      0xa2,
-    );
-    expect(j).toEqual({ kind: "done", vk: 0x4a, modifiers: 2 | 1 });
-    // 组合键确认后暂存作废：Ctrl 松开不再录出单键。
-    const ctrlUp = recordKeyEvent(keyEvent("keyup", { code: "ControlLeft", key: "Control" }), null);
-    expect(ctrlUp).toEqual({ kind: "none" });
+  it("a full combo confirms on the main key; later modifier keyups record nothing", () => {
+    const done: Array<{ vk: number; modifiers: number }> = [];
+    const record = capture(done);
+    record(keyEvent("keydown", { code: "ControlLeft", key: "Control" }));
+    record(keyEvent("keydown", { code: "AltLeft", key: "Alt" }));
+    record(keyEvent("keydown", { code: "KeyJ", key: "j", keyCode: 0x4a, ctrlKey: true, altKey: true }));
+    expect(done).toEqual([{ vk: 0x4a, modifiers: 2 | 1 }]);
+    // 组合键已确认、栈已清：后续修饰键松开不得再录出单键（覆盖回归）。
+    record(keyEvent("keyup", { code: "ControlLeft", key: "Control" }));
+    record(keyEvent("keyup", { code: "AltLeft", key: "Alt" }));
+    expect(done).toHaveLength(1);
   });
 
-  it("keyup of a different key never confirms the pending modifier", () => {
-    recordKeyEvent(keyEvent("keydown", { code: "AltRight", key: "Alt" }), null);
-    const other = recordKeyEvent(keyEvent("keyup", { code: "AltLeft", key: "Alt" }), 0xa5);
-    expect(other).toEqual({ kind: "none" });
+  it("mid-sequence modifier release does not record a stray single key", () => {
+    const done: Array<{ vk: number; modifiers: number }> = [];
+    const record = capture(done);
+    record(keyEvent("keydown", { code: "ControlLeft", key: "Control" }));
+    record(keyEvent("keydown", { code: "AltLeft", key: "Alt" }));
+    record(keyEvent("keyup", { code: "ControlLeft", key: "Control" }));
+    expect(done).toEqual([]);
+    record(keyEvent("keyup", { code: "AltLeft", key: "Alt" }));
+    expect(done).toEqual([{ vk: 0xa4, modifiers: 0 }]);
   });
 
   it("keydown without a key code is ignored (defensive)", () => {
-    expect(recordKeyEvent(keyEvent("keydown", { code: "KeyZ", key: "z" }), null)).toEqual({ kind: "none" });
+    const done: Array<{ vk: number; modifiers: number }> = [];
+    const record = capture(done);
+    record(keyEvent("keydown", { code: "KeyZ", key: "z" }));
+    expect(done).toEqual([]);
   });
 });

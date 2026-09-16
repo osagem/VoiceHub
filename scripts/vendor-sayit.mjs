@@ -86,6 +86,30 @@ const MECHANICAL_PATCHES = [
 // ---------------------------------------------------------------------------
 const MANUAL_PATCHES = [
   {
+    id: 'markdown-result-card',
+    files: [
+      'frontend/src/overlay/markdown.tsx', 'frontend/src/overlay/__tests__/markdown.test.tsx',
+      'frontend/src/overlay/Overlay.tsx', 'frontend/src/services/recorder/OverlayService.ts',
+      'frontend/src/services/recorder/RecorderOrchestrator.ts', 'native/src/window/mod.rs',
+    ],
+    describe: 'Selection explain-card: when a selection-edit AI result lands on a non-editable target (browser/PDF reading), it renders in an overlay result card as basic Markdown (zero-dependency renderer, escaped React nodes) instead of being pasted; the markdown-output instruction is appended to the selection prompt only on that path. Editable targets keep the paste-replace behavior.',
+    verify() {
+      if (!exists('frontend/src/overlay/markdown.tsx')) return 'markdown renderer missing';
+      if (!exists('frontend/src/overlay/__tests__/markdown.test.tsx')) return 'markdown renderer tests missing';
+      const overlay = readVendor('frontend/src/overlay/Overlay.tsx');
+      if (!overlay.includes("state === 'result'")) return 'Overlay.tsx lost the result card branch';
+      if (!overlay.includes('resultMarkdown')) return 'Overlay.tsx lost the resultMarkdown payload field';
+      const service = readVendor('frontend/src/services/recorder/OverlayService.ts');
+      if (!service.includes('showMarkdownResult')) return 'OverlayService lost showMarkdownResult';
+      const orchestrator = readVendor('frontend/src/services/recorder/RecorderOrchestrator.ts');
+      if (!orchestrator.includes('explainCardEligible')) return 'orchestrator lost the explain-card routing';
+      if (!orchestrator.includes('explain-card')) return 'orchestrator lost the markdown-format prompt injection';
+      const window = readVendor('native/src/window/mod.rs');
+      if (!window.includes('OverlayLayout::Result')) return 'native overlay lost the Result layout';
+      return null;
+    },
+  },
+  {
     id: 'voicehub-owned-extensions',
     files: [
       'native/Cargo.toml', 'native/build.rs',

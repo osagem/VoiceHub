@@ -12,7 +12,7 @@ import {
 } from './types'
 import type { MicSourceMode } from './micSourceReminder'
 
-type OverlayVisualState = 'waiting' | 'listening' | 'thinking' | 'fallback' | 'error' | 'toast'
+type OverlayVisualState = 'waiting' | 'listening' | 'thinking' | 'fallback' | 'result' | 'error' | 'toast'
 
 interface MicSourceHint {
   mode: MicSourceMode
@@ -385,6 +385,21 @@ export class OverlayService {
       console.log('[OverlayService] fallback auto-hide timer fired')
       this.hide()
     }, 10000)
+  }
+
+  /**
+   * 划词讲解结果卡：Markdown 渲染、无自动隐藏（阅读场景驻留，Esc/按钮关闭）。
+   * escape 走 dismiss_fallback 同款模式（Esc 隐藏悬浮窗）。
+   */
+  showMarkdownResult(markdown: string, token = 0) {
+    this.currentState = 'result'
+    this.clearMicSourceHint()
+    this.setEscapeMode(token > 0 ? 'dismiss_fallback' : 'off', token)
+    void bridge.presentOverlay({
+      state: 'result',
+      resultMarkdown: markdown,
+      ...this.getCommonPayload(),
+    })
   }
 
   clearFallbackHideTimer() {

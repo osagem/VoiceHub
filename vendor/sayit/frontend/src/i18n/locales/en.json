@@ -59,6 +59,8 @@
   "overlay.copyText": "Copy text",
   "overlay.copied": "Copied",
   "overlay.dismissAria": "Dismiss transcript",
+  "overlay.resultTitle": "Summary",
+  "overlay.resultHint": "Press Esc or ✕ to close; copy button copies the full text",
   "overlay.noText": "(no text)",
   "overlay.liveCaption": "Live",
   "overlay.listening": "Listening…",

@@ -1729,6 +1729,17 @@ export class RecorderOrchestrator {
         ),
         summary: `${this.currentPromptResolution.summary} | Text context: ${textContext.selectedText ? 'selection' : 'caret'}`,
       }
+      // 划词讲解模式：选中了文字 + 目标不可编辑（浏览器/PDF 阅读场景）→
+      // 结果将以 Markdown 阅读卡展示，要求 AI 按 Markdown 分块组织输出。
+      // 可编辑目标保持纯文本（替换原文场景，Markdown 记号会污染正文）。
+      if (textContext.selectedText && this.cachedProbeResult && !this.cachedProbeResult.editable) {
+        this.currentPromptResolution = {
+          ...this.currentPromptResolution,
+          systemPrompt: `${this.currentPromptResolution.systemPrompt}\n\n本次结果将在悬浮卡片中展示给用户阅读。请用基础 Markdown 组织输出：用「## 小节标题」分节、「- 」要点列表、「**重点**」加粗；保持言简意赅。不要输出表格、图片、链接或 HTML。`,
+          summary: `${this.currentPromptResolution.summary} | explain-card`,
+        }
+        addRuntimeEvent('info', 'recorder', 'Explain-card mode: markdown output requested', {})
+      }
       addRuntimeEvent('info', 'recorder', 'Text context captured', {
         source: textContext.source,
         beforeLen: textContext.textBefore.length,
@@ -2696,6 +2707,28 @@ export class RecorderOrchestrator {
     }
 
     void this.updatePersonalizationFromFinal(runId, textToPaste, promptResolution, appContext)
+
+    // 划词讲解分流：AI 真正执行了选区编辑（非回填兜底）+ 目标不可编辑 →
+    // 结果走 Markdown 阅读卡（驻留 + 复制），不尝试粘贴。可编辑目标照旧粘贴替换。
+    const explainCardEligible =
+      selectedEditWasApplied
+      && Boolean(context.appContext?.textContext?.selectedText)
+      && context.probeResult != null
+      && !context.probeResult.editable
+    if (explainCardEligible) {
+      addRuntimeEvent('info', 'recorder', 'Explain result → markdown card (target not editable)', {
+        runId,
+        textLen: textToPaste.length,
+        process: context.probeResult?.process,
+      })
+      this.activeFallbackToken = runId
+      this.overlayService.showMarkdownResult(textToPaste, runId)
+      this.finishRun(runId)
+      if (this.state === 'processing') {
+        this.resetToIdle({ keepOverlay: true })
+      }
+      return
+    }
 
     this.textInsertionInFlight = true
     try {

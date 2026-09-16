@@ -5,8 +5,9 @@ import { isLocale, setLocale } from '@/i18n'
 import { useT } from '@/i18n/useT'
 import { addRuntimeEvent } from '../services/debugLog'
 import { formatRecordingTimer } from '../services/recorder/types'
+import { MarkdownResult } from './markdown'
 
-type OverlayState = 'waiting' | 'listening' | 'thinking' | 'fallback' | 'error' | 'toast'
+type OverlayState = 'waiting' | 'listening' | 'thinking' | 'fallback' | 'result' | 'error' | 'toast'
 type RecordingVisualPhase = 'preparing' | 'listening'
 type OverlayWaveTheme = 'black-white' | 'black-blue' | 'black-rainbow'
 
@@ -19,6 +20,8 @@ interface OverlayPayload {
   barCount?: number
   fallbackText?: string
   fallbackReason?: string
+  /** 划词讲解结果（Markdown）——result 态卡片正文。 */
+  resultMarkdown?: string
   errorMessage?: string
   warning?: string
   /** warning 的严重级别：warn=琥珀（声音小/未检测到），error=红色高警（麦克风已被静音） */
@@ -89,6 +92,7 @@ export default function Overlay() {
   const [barCount, setBarCount] = useState(DEFAULT_BAR_COUNT)
   const [presentationId, setPresentationId] = useState(0)
   const [fallbackText, setFallbackText] = useState('')
+  const [resultMarkdown, setResultMarkdown] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
   const [toastText, setToastText] = useState('')
   const [toastTone, setToastTone] = useState<'info' | 'warn'>('info')
@@ -176,7 +180,7 @@ export default function Overlay() {
           setStreamingOn(false)
         }
         setCopied(false)
-        if (payload.state !== 'fallback' && hideTimerRef.current) {
+        if (payload.state !== 'fallback' && payload.state !== 'result' && hideTimerRef.current) {
           clearTimeout(hideTimerRef.current)
           hideTimerRef.current = null
         }
@@ -194,6 +198,7 @@ export default function Overlay() {
       if (payload.theme) setTheme(normalizeTheme(payload.theme))
       if (typeof payload.barCount === 'number' && payload.barCount > 0) setBarCount(payload.barCount)
       if (typeof payload.fallbackText === 'string') setFallbackText(payload.fallbackText)
+      if (typeof payload.resultMarkdown === 'string') setResultMarkdown(payload.resultMarkdown)
       if (typeof payload.errorMessage === 'string') setErrorMessage(payload.errorMessage)
       if (typeof payload.toastText === 'string') setToastText(payload.toastText)
       if (payload.toastTone === 'info' || payload.toastTone === 'warn') setToastTone(payload.toastTone)
@@ -354,12 +359,74 @@ export default function Overlay() {
     void bridge.hideOverlay()
   }
 
+  const handleCopyResult = async () => {
+    if (!resultMarkdown) return
+    try {
+      await bridge.copyText(resultMarkdown)
+      setCopied(true)
+      addRuntimeEvent('info', 'overlay', 'Result card copied', { textLen: resultMarkdown.length })
+    } catch (error) {
+      addRuntimeEvent('error', 'overlay', 'Result card copy failed', { error: String(error) })
+    }
+  }
+
+  const handleDismissResult = () => {
+    addRuntimeEvent('info', 'overlay', 'Result card dismissed by user')
+    void bridge.setEscapeActionMode('off')
+    void bridge.hideOverlay()
+  }
+
   return (
     <div
       ref={rootRef}
       className="pointer-events-none flex h-full items-end justify-center pb-4"
     >
-      {state === 'fallback' ? (
+      {state === 'result' ? (
+        <div
+          data-overlay-content
+          className="pointer-events-auto flex h-full w-full max-w-[520px] flex-col rounded-xl border px-4 py-4"
+          style={{
+            background: 'var(--overlay-bg)',
+            color: 'var(--overlay-text)',
+            borderColor: 'var(--overlay-border)',
+          }}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1">
+              <span className="block text-xs font-medium tracking-[0.16em]" style={{ color: 'var(--overlay-text-muted)' }}>{t('overlay.resultTitle')}</span>
+              <span className="block text-xs" style={{ color: 'var(--overlay-text-dim)' }}>
+                {t('overlay.resultHint')}
+              </span>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCopyResult}
+                title={copied ? t('overlay.copied') : t('overlay.copyText')}
+                className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition-colors ${copied
+                  ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200'
+                  : 'border-white/10 bg-white/10 text-white/90 hover:bg-white/20'
+                  }`}
+              >
+                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              </button>
+              <button
+                type="button"
+                onClick={handleDismissResult}
+                title={t('window.close')}
+                aria-label={t('overlay.dismissAria')}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/60 transition-colors hover:bg-white/15 hover:text-white"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+          {/* 阅读卡正文：flex-1 + min-h-0 让长结果在卡内滚动（窗口高度由原生 Result 布局档决定）。 */}
+          <div className="mt-3 min-h-0 flex-1 overflow-y-auto rounded-lg px-3 py-2 select-text" style={{ background: 'var(--overlay-surface)' }}>
+            <MarkdownResult source={resultMarkdown} />
+          </div>
+        </div>
+      ) : state === 'fallback' ? (
         <div
           data-overlay-content
           className="pointer-events-auto flex w-full max-w-[520px] flex-col rounded-xl border px-4 py-4"

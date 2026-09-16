@@ -59,6 +59,8 @@
   "overlay.copyText": "复制文本",
   "overlay.copied": "已复制",
   "overlay.dismissAria": "关闭识别文本提示",
+  "overlay.resultTitle": "讲解结果",
+  "overlay.resultHint": "Esc 或点 ✕ 关闭；点复制按钮可复制全文",
   "overlay.noText": "（无文本）",
   "overlay.liveCaption": "实时识别",
   "overlay.listening": "正在聆听…",

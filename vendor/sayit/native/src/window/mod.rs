@@ -17,6 +17,9 @@ const OVERLAY_DEFAULT_BASE_WIDTH: f64 = 360.0;
 const OVERLAY_BASE_HEIGHT: f64 = 64.0;
 const OVERLAY_FALLBACK_WIDTH: f64 = 520.0;
 const OVERLAY_FALLBACK_HEIGHT: f64 = 224.0;
+// 划词讲解结果卡：Markdown 阅读区约 360px 滚动 + 卡头，驻留展示。
+const OVERLAY_RESULT_WIDTH: f64 = 520.0;
+const OVERLAY_RESULT_HEIGHT: f64 = 480.0;
 // 流式实时显示：录音气泡 + 波形条堆叠，需要更宽更高的窗口
 const OVERLAY_STREAMING_WIDTH: f64 = 480.0;
 const OVERLAY_STREAMING_HEIGHT: f64 = 200.0;
@@ -61,6 +64,8 @@ enum OverlayLayout {
     Base,
     BaseWithMicHint,
     Fallback,
+    /// 划词讲解结果卡（Markdown，可点击复制/关闭）。
+    Result,
     /// 流式实时显示：气泡 + 波形，窗口更大且非交互
     Streaming,
     StreamingWithMicHint,
@@ -69,7 +74,7 @@ enum OverlayLayout {
 impl OverlayLayout {
     /// 该布局是否为可交互（可点击）状态——目前只有兜底卡片需要交互。
     fn is_interactive(&self) -> bool {
-        matches!(self, OverlayLayout::Fallback)
+        matches!(self, OverlayLayout::Fallback | OverlayLayout::Result)
     }
 
     /// 该布局期望的设计尺寸（宽, 高），单位是 CSS px。
@@ -84,6 +89,7 @@ impl OverlayLayout {
                 OVERLAY_MIC_HINT_HEIGHT,
             ),
             OverlayLayout::Fallback => (OVERLAY_FALLBACK_WIDTH, OVERLAY_FALLBACK_HEIGHT),
+            OverlayLayout::Result => (OVERLAY_RESULT_WIDTH, OVERLAY_RESULT_HEIGHT),
             OverlayLayout::Streaming => (OVERLAY_STREAMING_WIDTH, OVERLAY_STREAMING_HEIGHT),
             OverlayLayout::StreamingWithMicHint => (
                 OVERLAY_STREAMING_WIDTH,
@@ -537,6 +543,8 @@ impl WindowState {
             .unwrap_or(false);
         let candidate_layout = if state == Some("fallback") {
             OverlayLayout::Fallback
+        } else if state == Some("result") {
+            OverlayLayout::Result
         } else if state == Some("listening") && streaming_on && mic_hint_on {
             OverlayLayout::StreamingWithMicHint
         } else if state == Some("listening") && streaming_on {
@@ -1120,6 +1128,9 @@ mod tests {
             ("base", OverlayLayout::Base, required_css_height()),
             ("mic_hint", OverlayLayout::BaseWithMicHint, required_css_height() + 8.0 + 30.0),
             ("fallback", OverlayLayout::Fallback, OVERLAY_ROOT_PADDING_BOTTOM + 149.0),
+            // 结果卡内容高度上不封顶（长文滚动），按典型值 420 校验下限：
+            // 卡头约 56 + 正文 360 + padding。
+            ("result", OverlayLayout::Result, OVERLAY_ROOT_PADDING_BOTTOM + 56.0 + 360.0),
             ("streaming", OverlayLayout::Streaming, required_css_height() + 8.0 + 110.0),
             (
                 "streaming_mic_hint",

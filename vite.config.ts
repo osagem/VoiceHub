@@ -19,7 +19,7 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
-    include: ["src/**/*.{test,spec}.ts", "vendor/sayit/frontend/src/**/*.test.ts"],
+    include: ["src/**/*.{test,spec}.ts", "vendor/sayit/frontend/src/**/*.{test,spec}.{ts,tsx}"],
   },
   clearScreen: false,
   server: {

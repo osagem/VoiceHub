@@ -88,31 +88,47 @@ const MANUAL_PATCHES = [
   {
     id: 'voicehub-owned-extensions',
     files: [
-      'native/Cargo.toml', 'native/src/models/custom.rs', 'native/src/providers/asr_openai_compat.rs',
-      'native/src/storage/mod.rs', 'native/src/handler.rs', 'native/src/providers/registry.rs',
-      'native/src/providers/asr_groq.rs', 'frontend/src/features/settings/CustomLocalModel.tsx',
-      'frontend/src/features/settings/asrProviderCatalog.ts', 'frontend/src/themes/voicehub.ts',
-      'frontend/src/services/recorder/__tests__/RemoteTransport.test.ts',
+      'native/Cargo.toml', 'native/build.rs',
+      'native/src/models/custom.rs', 'native/src/models/gguf_asr.rs',
+      'native/src/providers/asr_openai_compat.rs', 'native/src/providers/registry.rs',
+      'native/src/providers/asr_groq.rs', 'native/src/storage/mod.rs', 'native/src/handler.rs',
+      'frontend/src/services/audio.ts', 'frontend/src/services/recorder/__tests__/RemoteTransport.test.ts',
+      'frontend/src/features/settings/CustomLocalModel.tsx', 'frontend/src/features/settings/VoiceEnginePage.tsx',
+      'frontend/src/features/settings/asrProfileStore.ts', 'frontend/src/features/settings/asrProviderCatalog.ts',
+      'frontend/src/services/transcription/CloudAPIProvider.ts', 'frontend/src/pages/History.tsx',
+      'frontend/src/themes/voicehub.ts', 'frontend/tailwind.config.cjs',
     ],
-    describe: 'VoiceHub-owned extensions living inside the vendor tree (2026-09-14 sync nearly lost them): custom GGUF model path commands, OpenAI-compatible ASR provider (native + catalog card + keyless local services), package identity (voicehub-sayit/lib/vulkan feature gate), select_custom_model storage method, voicehub theme, and the RemoteTransport tests. Registry note: every future hand-added file must land here or the next re-import deletes it.',
+    describe: 'VoiceHub-owned extensions inside the vendor tree (cross-review 2026-09-16 hardened after the 0.2.0 sync dropped several of them): custom GGUF model path end to end (native loader branch + settings card + engine page entry), OpenAI-compatible ASR end to end (provider + registry routes + catalog card + runtime sync of apiUrl/model + transcription extra + history re-run extra), remote-PCM mic interception in audio.ts, storage seeds (workMode=local, aiEnabled=false), voicehub theme registration, and the tailwind content glob covering vendor pages. Every file listed here must exist and carry its probe marker.',
     verify() {
-      if (!exists('native/src/models/custom.rs')) return 'models/custom.rs missing';
-      if (!exists('native/src/providers/asr_openai_compat.rs')) return 'asr_openai_compat.rs missing';
-      if (!exists('frontend/src/themes/voicehub.ts')) return 'voicehub theme missing';
-      const cargo = readVendor('native/Cargo.toml');
-      if (!cargo.includes('name = "voicehub-sayit"')) return 'Cargo.toml lost the voicehub-sayit package identity';
+      for (const f of this.files) {
+        if (!exists(f)) return `${f} missing (import wiped an owned extension)`;
+      }
+      const read = (f) => readVendor(f);
+      const cargo = read('native/Cargo.toml');
+      if (!cargo.includes('name = "voicehub-sayit"')) return 'Cargo.toml lost the package identity';
       if (!cargo.includes('vulkan = ["transcribe-cpp/vulkan"]')) return 'Cargo.toml lost the vulkan feature gate';
-      const handler = readVendor('native/src/handler.rs');
-      if (!handler.includes('custom_model_path')) return 'handler.rs lost custom model commands';
-      const registry = readVendor('native/src/providers/registry.rs');
-      if (!registry.includes('asr_openai_compat::transcribe')) return 'registry.rs lost the openai_compat ASR route';
-      const storage = readVendor('native/src/storage/mod.rs');
-      if (!storage.includes('select_custom_model')) return 'storage lost select_custom_model';
-      const catalog = readVendor('frontend/src/features/settings/asrProviderCatalog.ts');
-      if (!catalog.includes("id: 'openai_compat'")) return 'asr catalog lost the openai_compat card';
-      const build = readVendor('native/build.rs');
+      const build = read('native/build.rs');
       if (!build.includes('pub fn stage_transcribe_runtime_libs')) return 'build.rs lost the pub staging fn';
-      if (/^[^/]*tauri_build::build\(\)/m.test(build)) return 'build.rs re-embeds tauri resources (duplicate VERSION)';
+      if (/^[^\/]*tauri_build::build\(\)/m.test(build)) return 'build.rs re-embeds tauri resources (duplicate VERSION)';
+      if (!read('native/src/handler.rs').includes('custom_model_path')) return 'handler.rs lost custom model commands';
+      const registry = read('native/src/providers/registry.rs');
+      if (!registry.includes('asr_openai_compat::transcribe')) return 'registry.rs lost the openai_compat ASR route';
+      if (!read('native/src/storage/mod.rs').includes('select_custom_model')) return 'storage lost select_custom_model';
+      if (!read('native/src/storage/mod.rs').includes('workMode')) return 'storage lost the local-mode seed';
+      if (!read('native/src/models/gguf_asr.rs').includes('super::custom::ID')) return 'gguf_asr lost the custom-path model branch';
+      const audio = read('frontend/src/services/audio.ts');
+      if (!audio.includes('REMOTE_MIC_ID')) return 'audio.ts lost the remote-mic interception';
+      const profileStore = read('frontend/src/features/settings/asrProfileStore.ts');
+      if (!profileStore.includes("setSetting('cloudAsr.apiUrl'")) return 'asrProfileStore lost apiUrl/model runtime sync';
+      const catalog = read('frontend/src/features/settings/asrProviderCatalog.ts');
+      if (!catalog.includes("id: 'openai_compat'")) return 'asr catalog lost the openai_compat card';
+      const cloud = read('frontend/src/services/transcription/CloudAPIProvider.ts');
+      if (!cloud.includes('api_url')) return 'CloudAPIProvider lost the custom ASR extra fields';
+      if (!read('frontend/src/pages/History.tsx').includes('api_url')) return 'History re-run lost the custom ASR extra fields';
+      if (!read('frontend/src/features/settings/VoiceEnginePage.tsx').includes('CustomLocalModel')) return 'engine page lost the custom model entry';
+      if (!read('frontend/src/themes/index.ts').includes('voicehub')) return 'themes index lost the voicehub registration';
+      const tailwind = read('frontend/tailwind.config.cjs');
+      if (!tailwind.includes('vendor/sayit/frontend/src/**/*.{ts,tsx}')) return 'tailwind content glob lost the vendor page scan';
       return null;
     },
   },

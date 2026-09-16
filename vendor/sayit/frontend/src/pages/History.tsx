@@ -233,6 +233,10 @@ async function reprocessViaCloudApi(
     api_key: asrApiKey,
     app_id: asrAppId,
     ...(isQwenOmni && { extra: { model: qwenOmniModel, instructions: omniInstructions } }),
+    ...(asrProvider === 'openai_compat' && { extra: {
+      api_url: await getSetting('cloudAsr.apiUrl', ''),
+      model: await getSetting('cloudAsr.model', ''),
+    } }),
   }
 
   const asrStart = performance.now()

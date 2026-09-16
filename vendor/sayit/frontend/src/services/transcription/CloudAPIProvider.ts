@@ -515,6 +515,14 @@ export class CloudAPIProvider implements TranscriptionProvider {
           }),
         }
 
+        if (asrProvider === 'openai_compat') {
+          asrConfig.extra = {
+            api_url: await getSetting('cloudAsr.apiUrl', ''),
+            model: await getSetting('cloudAsr.model', ''),
+            language: startOpts.language,
+          }
+          if (!this.isRunCurrent(runId)) return
+        }
         addRuntimeEvent('info', 'cloud_api', 'ASR started', { provider: asrProvider, durationSec })
         const asrResult = await invoke<AsrResult>('cloud_transcribe', {
           request: {

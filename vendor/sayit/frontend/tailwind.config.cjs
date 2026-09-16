@@ -1,7 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   darkMode: ["class"],
-  content: ["./index.html", "./overlay.html", "./src/**/*.{ts,tsx}"],
+  content: ["./index.html", "./overlay.html", "./vendor/sayit/frontend/src/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {

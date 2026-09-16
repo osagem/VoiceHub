@@ -112,7 +112,7 @@ const MANUAL_PATCHES = [
       if (!catalog.includes("id: 'openai_compat'")) return 'asr catalog lost the openai_compat card';
       const build = readVendor('native/build.rs');
       if (!build.includes('pub fn stage_transcribe_runtime_libs')) return 'build.rs lost the pub staging fn';
-      if (build.includes('tauri_build::build()')) return 'build.rs re-embeds tauri resources (duplicate VERSION)';
+      if (/^[^/]*tauri_build::build\(\)/m.test(build)) return 'build.rs re-embeds tauri resources (duplicate VERSION)';
       return null;
     },
   },

@@ -9,11 +9,9 @@ import type { ThemeDefinition, ThemeId } from './types'
 import light from './light'
 import dark from './dark'
 import claude from './claude'
-import voicehub from './voicehub'
 
 /** 所有已注册主题（新增主题只需在此添加一行） */
 const themes: Record<string, ThemeDefinition> = {
-  voicehub,
   light,
   dark,
   claude,

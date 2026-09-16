@@ -6,7 +6,8 @@ fn main() {
     // 目录是这一步生成的，顺序反了会报
     // "glob pattern transcribe-libs/* path not found or didn't match any files"。
     stage_transcribe_runtime_libs();
-
+    // VoiceHub 宿主（src-tauri/build.rs）已调用 tauri_build::build()——
+    // 这里再嵌一次会 CVT1100 VERSION 资源重复，链接失败。
 }
 
 /// 把 transcribe-cpp 的运行时库 + ggml 后端模块放到两个地方：

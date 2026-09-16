@@ -31,11 +31,12 @@ export interface AsrPlatformInfo {
 // label 用 getter：这是模块级常量，普通字段会把加载那一刻的语言固化下来。
 // 见 aiProviderCatalog.ts 里 AiProvider.label 的注释。
 export const ASR_PLATFORMS: Record<AsrPlatform, AsrPlatformInfo> = {
-  custom: { label: 'OpenAI compatible ASR', consoleUrl: '' },
   doubao: { get label() { return t('asrPlatform.doubao') }, consoleUrl: 'https://console.volcengine.com/speech/app' },
   qwen: { get label() { return t('asrPlatform.qwen') }, consoleUrl: 'https://bailian.console.aliyun.com' },
   mimo: { get label() { return t('asrPlatform.mimo') }, consoleUrl: 'https://xiaoai.mi.com' },
   groq: { label: 'Groq', consoleUrl: 'https://console.groq.com/keys' },
+  // VoiceHub 自有：自定义 ASR / OpenAI 兼容（无控制台直达）。
+  custom: { label: 'Custom / OpenAI-compatible', consoleUrl: '' },
 }
 
 export interface AsrProviderEntry {
@@ -155,6 +156,7 @@ export const ASR_PROVIDERS: AsrProviderEntry[] = [
     availability: 'global',
     get blurb() { return t('asrProvider.groqBlurb') },
   },
+  // VoiceHub 自有：自定义 ASR / OpenAI 兼容（0.2.0 平台卡体系下重新挂回）。
   { id: 'openai_compat', label: '自定义 ASR / OpenAI 兼容', model: 'Custom model', platform: 'custom', blurb: '本地服务或第三方转写接口', availability: 'mainland_china' },
 ]
 
@@ -245,6 +247,7 @@ export interface AsrProfile {
   workspaceId: string
   /** Omni 模型的 System Prompt（识别与整理一体，属于这份服务的行为） */
   omniPrompt: string
+  /** VoiceHub 自有 openai_compat：接口地址与模型名（其余供应商不用）。 */
   apiUrl?: string
   model?: string
   /** 上次识别测试的结论 */
@@ -266,6 +269,7 @@ export function emptyAsrProfile(provider = ASR_PROVIDERS[0].id): AsrProfile {
     otherKey: '',
     workspaceId: '',
     omniPrompt: '',
+    ...(provider === 'openai_compat' ? { apiUrl: '', model: '' } : {}),
   }
 }
 

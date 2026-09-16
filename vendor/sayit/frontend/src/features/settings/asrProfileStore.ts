@@ -60,8 +60,6 @@ async function syncRuntimeActive(profile: AsrProfile | null): Promise<void> {
     setSetting('cloudAsr.provider', profile?.provider ?? ''),
     setSetting('cloudAsr.apiKey', creds.apiKey),
     setSetting('cloudAsr.appId', creds.appId),
-    setSetting('cloudAsr.apiUrl', profile?.apiUrl?.trim() ?? ''),
-    setSetting('cloudAsr.model', profile?.model?.trim() ?? ''),
     setSetting('cloudAsr.qwen.workspaceId', profile?.workspaceId?.trim() ?? ''),
     setSetting('cloudAsr.omniSystemPrompt', profile?.omniPrompt ?? ''),
   ])

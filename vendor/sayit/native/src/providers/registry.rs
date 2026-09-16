@@ -59,7 +59,6 @@ pub async fn test_ai_connection(config: AiProviderConfig) -> Result<TestResult, 
 pub async fn cloud_transcribe(request: CloudTranscribeRequest) -> Result<AsrResult, String> {
     let config = &request.asr_config;
     match config.provider.as_str() {
-        "openai_compat" => super::asr_openai_compat::transcribe(&request.audio_b64, request.sample_rate, config, &request.hotwords).await,
         "doubao" => {
             asr_doubao::transcribe(
                 &request.audio_b64,
@@ -116,6 +115,16 @@ pub async fn cloud_transcribe(request: CloudTranscribeRequest) -> Result<AsrResu
             )
             .await
         }
+        // VoiceHub 自有：自定义 ASR / OpenAI 兼容（本地服务或第三方接口）。
+        "openai_compat" => {
+            super::asr_openai_compat::transcribe(
+                &request.audio_b64,
+                request.sample_rate,
+                config,
+                &request.hotwords,
+            )
+            .await
+        }
         "groq_whisper" => {
             asr_groq::transcribe(
                 &request.audio_b64,
@@ -136,7 +145,6 @@ pub async fn cloud_transcribe(request: CloudTranscribeRequest) -> Result<AsrResu
 #[tauri::command]
 pub async fn test_asr_connection(config: AsrProviderConfig) -> Result<TestResult, String> {
     match config.provider.as_str() {
-        "openai_compat" => Ok(super::asr_openai_compat::test_connection(&config).await),
         "doubao" => Ok(asr_doubao::test_connection(&config).await),
         "doubao_v2" => Ok(asr_doubao_stream::test_connection(&config).await),
         "qwen" | "aliyun" | "qwen_realtime" => Ok(asr_qwen::test_connection(&config).await),
@@ -144,6 +152,7 @@ pub async fn test_asr_connection(config: AsrProviderConfig) -> Result<TestResult
         "qwen_omni" => Ok(asr_qwen_omni::test_connection(&config).await),
         "mimo" => Ok(asr_mimo::test_connection(&config).await),
         "groq_whisper" => Ok(asr_groq::test_connection(&config).await),
+        "openai_compat" => Ok(super::asr_openai_compat::test_connection(&config).await),
         other => Err(error_protocol::encode(
             "connect_failed",
             format!("ASR provider \"{}\" is not implemented", other),

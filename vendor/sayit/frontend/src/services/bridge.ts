@@ -88,8 +88,10 @@ export function updateOverlay(data: unknown) {
   })
 }
 
-export function overlayReady() {
-  return invoke<void>('overlay_ready')
+// devicePixelRatio 在这里就上报：预热时（还没有任何一次显示）是原生侧唯一能在第一次
+// 显示之前拿到 webview 真实缩放的时机，否则用户第一次口述会看到尺寸不对的悬浮窗。
+export function overlayReady(devicePixelRatio?: number) {
+  return invoke<void>('overlay_ready', { devicePixelRatio })
 }
 
 export function overlayRenderAck(data: unknown) {
@@ -429,7 +431,8 @@ export function onPTTUp(cb: (data?: unknown) => void) {
   return () => { unlisten.then((fn) => fn()) }
 }
 
-// onPTTToggle 已移除：native 从不发送 ptt-toggle 事件（上游遗留死监听）。
+
+// onPTTToggle 已移除：native 从不发送 ptt-toggle 事件（上游遗留死监听，0.2.0 复查仍无发射端）。
 
 export function onPTTTimeoutWarning(cb: (data?: unknown) => void) {
   const unlisten = listen<unknown>('ptt-timeout-warning', (event) => cb(event.payload))

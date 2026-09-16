@@ -305,9 +305,7 @@ fn ensure_loaded(model_id: &str, accelerator: &str) -> Result<(), String> {
     // 先释放旧引擎再建新的，避免同时驻留两份权重（GGUF 动辄几百 MB ~ 数 GB）。
     *cache = None;
 
-    let path = if model_id == super::custom::ID {
-        super::custom::path().ok_or("Select a custom GGUF model first")?
-    } else { find_gguf(&model_dir(model_id))? };
+    let path = find_gguf(&model_dir(model_id))?;
     log::info!("Loading GGUF ASR model: {} ({})", model_id, path.display());
     let start = Instant::now();
 
@@ -669,19 +667,6 @@ mod tests {
     use super::*;
 
     const SR_U: usize = 16000;
-
-    #[test]
-    #[ignore = "Requires VOICEHUB_TEST_MODEL pointing to a local ASR GGUF file"]
-    fn custom_local_model_transcribes_real_audio() {
-        let path = std::env::var("VOICEHUB_TEST_MODEL").expect("VOICEHUB_TEST_MODEL");
-        super::super::custom::restore(Some(path.into()));
-        let text = run_with(super::super::custom::ID, 1, read_test_wav(), "zh");
-        assert!(!text.trim().is_empty(), "No transcription");
-        assert!(!text.contains("<|"), "Unfiltered model tags");
-        println!("VoiceHub local ASR: {text}");
-        unload();
-        super::super::custom::restore(None);
-    }
 
     /// 读 16 kHz / mono / 16-bit WAV 为 f32（只够读我们自己的测试音频）。
     fn read_wav(name: &str) -> Vec<f32> {

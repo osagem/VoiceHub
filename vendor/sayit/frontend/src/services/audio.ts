@@ -4,7 +4,6 @@
 // deprecated-but-reliable ScriptProcessorNode.
 
 import { addRuntimeEvent } from './debugLog'
-import { REMOTE_MIC_ID, openRemoteCapture, closeRemoteCapture } from './remoteCapture'
 
 let audioCtx: AudioContext | null = null
 let workletNode: AudioWorkletNode | null = null
@@ -492,7 +491,6 @@ export async function startCapture(
   onFrame?: (pcm: Int16Array) => void,
   noiseSuppression: boolean = true,
 ) {
-  if (deviceId === REMOTE_MIC_ID) return openRemoteCapture(onData, onFrame)
   // Always tear down previous capture to prevent stale state leaks
   const hadPriorCtx = audioCtx !== null
   const hadPriorWorklet = workletNode !== null
@@ -641,7 +639,6 @@ export async function startCapture(
 }
 
 export async function stopCapture() {
-  closeRemoteCapture()
   const finalCtxRate = audioCtx?.sampleRate
   console.log('[audio-diag] stopCapture final summary', {
     contextSampleRate: finalCtxRate,

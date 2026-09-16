@@ -6,8 +6,6 @@ use std::sync::Mutex;
 
 /// Default settings values (mirrors electron-app/electron/store.ts)
 const DEFAULT_SETTINGS: &[(&str, &str)] = &[
-    ("workMode", r#""local""#),
-    ("aiEnabled", "false"),
     // 按住说话的默认键。不能是 Shift：长按右 Shift 会触发 Windows 筛选键，
     // 导致松开后录音停不下来。与 src/services/defaults.ts、keyboard/mod.rs 的
     // DEFAULT_PTT_SETTING 保持一致。

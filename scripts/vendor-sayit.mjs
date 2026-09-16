@@ -86,6 +86,37 @@ const MECHANICAL_PATCHES = [
 // ---------------------------------------------------------------------------
 const MANUAL_PATCHES = [
   {
+    id: 'voicehub-owned-extensions',
+    files: [
+      'native/Cargo.toml', 'native/src/models/custom.rs', 'native/src/providers/asr_openai_compat.rs',
+      'native/src/storage/mod.rs', 'native/src/handler.rs', 'native/src/providers/registry.rs',
+      'native/src/providers/asr_groq.rs', 'frontend/src/features/settings/CustomLocalModel.tsx',
+      'frontend/src/features/settings/asrProviderCatalog.ts', 'frontend/src/themes/voicehub.ts',
+      'frontend/src/services/recorder/__tests__/RemoteTransport.test.ts',
+    ],
+    describe: 'VoiceHub-owned extensions living inside the vendor tree (2026-09-14 sync nearly lost them): custom GGUF model path commands, OpenAI-compatible ASR provider (native + catalog card + keyless local services), package identity (voicehub-sayit/lib/vulkan feature gate), select_custom_model storage method, voicehub theme, and the RemoteTransport tests. Registry note: every future hand-added file must land here or the next re-import deletes it.',
+    verify() {
+      if (!exists('native/src/models/custom.rs')) return 'models/custom.rs missing';
+      if (!exists('native/src/providers/asr_openai_compat.rs')) return 'asr_openai_compat.rs missing';
+      if (!exists('frontend/src/themes/voicehub.ts')) return 'voicehub theme missing';
+      const cargo = readVendor('native/Cargo.toml');
+      if (!cargo.includes('name = "voicehub-sayit"')) return 'Cargo.toml lost the voicehub-sayit package identity';
+      if (!cargo.includes('vulkan = ["transcribe-cpp/vulkan"]')) return 'Cargo.toml lost the vulkan feature gate';
+      const handler = readVendor('native/src/handler.rs');
+      if (!handler.includes('custom_model_path')) return 'handler.rs lost custom model commands';
+      const registry = readVendor('native/src/providers/registry.rs');
+      if (!registry.includes('asr_openai_compat::transcribe')) return 'registry.rs lost the openai_compat ASR route';
+      const storage = readVendor('native/src/storage/mod.rs');
+      if (!storage.includes('select_custom_model')) return 'storage lost select_custom_model';
+      const catalog = readVendor('frontend/src/features/settings/asrProviderCatalog.ts');
+      if (!catalog.includes("id: 'openai_compat'")) return 'asr catalog lost the openai_compat card';
+      const build = readVendor('native/build.rs');
+      if (!build.includes('pub fn stage_transcribe_runtime_libs')) return 'build.rs lost the pub staging fn';
+      if (build.includes('tauri_build::build()')) return 'build.rs re-embeds tauri resources (duplicate VERSION)';
+      return null;
+    },
+  },
+  {
     id: 'hotkey-hooks-toggle',
     files: ['native/src/lib.rs'],
     describe: 'Host-facing set_hotkey_hooks_enabled(): when the dictation tool is not the embedded engine the SayIt keyboard hook is stopped, so the default HF (right Alt) / PTT (right Ctrl) keys no longer wake embedded recording or swallow the host trigger-key recorder.',

@@ -48,7 +48,7 @@ const PUNCTUATION_PROMPT: &str = "以下是中文转写，使用全角标点，�
 /// /audio/transcriptions 按文件名与内容嗅探格式，裸 PCM 它认不出来。
 /// 这 18 行与 asr_mimo.rs 里那份是同一个 WAV 头，刻意各留一份：抽成公共函数后
 /// 任何一家改采样格式都会牵动另一家，而它们本来毫无关系。
-pub(super) fn pcm_to_wav(pcm: &[u8], sr: u32) -> Vec<u8> {
+pub(crate) fn pcm_to_wav(pcm: &[u8], sr: u32) -> Vec<u8> {
     let ds = pcm.len() as u32;
     let mut w = Vec::with_capacity(44 + pcm.len());
     w.extend_from_slice(b"RIFF");

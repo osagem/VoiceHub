@@ -26,7 +26,7 @@ const Select = forwardRef<HTMLDivElement, SelectProps>(
 
     // 如果传入了 children（原生 option），则解析它们
     const parsedOptions: SelectOption[] = options || []
-
+    
     if (!options && children) {
       const childArray = Array.isArray(children) ? children : [children]
       childArray.forEach((child: any) => {

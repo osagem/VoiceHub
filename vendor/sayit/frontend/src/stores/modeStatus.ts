@@ -109,7 +109,7 @@ export async function refreshModeStatus(): Promise<void> {
       ready = false
       blockedReason = t('modeStatus.noAsrService')
     } else {
-      detail = active.provider === 'openai_compat' ? active.model || 'Custom ASR' : cloudProviderShort(active.provider)
+      detail = cloudProviderShort(active.provider)
       const missing = describeAsrMissing(active)
       // 流式识别缺业务空间 ID 时也算没配好：它会直接连不上地域专属端点
       const needsWorkspace = findAsrProvider(active.provider)?.needsWorkspaceId === true

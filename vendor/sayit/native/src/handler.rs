@@ -1,8 +1,6 @@
 use crate::{commands, models, providers};
 pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
  tauri::generate_handler![
-    models::custom::custom_model_path,
-    models::custom::register_custom_model,
             // Store
             commands::storage::store_get,
             commands::storage::store_set,
@@ -112,6 +110,8 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
             providers::asr_qwen_audio_stream::qwen_audio_stream_finish,
             providers::asr_qwen_audio_stream::qwen_audio_stream_close,
             // Models (local model management)
+            models::custom::custom_model_path,
+            models::custom::register_custom_model,
             models::registry::list_available_models,
             models::registry::list_downloaded_models,
             models::registry::download_model,

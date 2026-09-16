@@ -404,7 +404,7 @@ export default function LocalModeSection() {
       }
     })
     // 模型存储位置（在次级设置卡片里）变更后，刷新已下载列表
-    const onDirChanged = () => { void loadData() }
+    const onDirChanged = () => { void refreshDownloaded() }
     window.addEventListener(MODELS_DIR_CHANGED_EVENT, onDirChanged)
     return () => {
       void unlisten.then((fn) => fn())
@@ -510,7 +510,7 @@ export default function LocalModeSection() {
 
   /** 切到另一个下载源并立刻重试。下载失败时最常见的下一步就是这个。 */
   async function retryWithOtherSource(modelId: string) {
-    const options = availableModels.find(m => m.sources.length > 0)?.sources.map((s) => s.source) ?? []
+    const options = availableModels[0]?.sources.map((s) => s.source) ?? []
     const next = options.find((s) => s !== downloadSource) ?? downloadSource
     setDownloadSource(next)
     await setSetting('localAsr.downloadSource', next)
@@ -554,7 +554,7 @@ export default function LocalModeSection() {
 
   // 下载源按钮从 catalog 生成，保证和后端提供的源一一对应
   // （catalog 的测试保证了所有模型的源集合一致，取第一个模型的即可）
-  const sourceOptions = availableModels.find(m => m.sources.length > 0)?.sources.map((s) => s.source) ?? []
+  const sourceOptions = availableModels[0]?.sources.map((s) => s.source) ?? []
   // 存储里的旧值（如已下线的 ModelScope）对不上任何源时，实际下载会回落到
   // 第一个源，这里让 UI 显示和实际行为一致
   const effectiveSource = sourceOptions.includes(downloadSource)
@@ -746,9 +746,9 @@ export default function LocalModeSection() {
                             {preloadingModelId === model.id ? t('local.loadingModel') : t('local.select')}
                           </Button>
                         )}
-                        {model.id !== 'voicehub-custom-gguf' && <Button size="sm" variant="ghost" onClick={() => setConfirmDeleteId(model.id)}>
+                        <Button size="sm" variant="ghost" onClick={() => setConfirmDeleteId(model.id)}>
                           {t('common.delete')}
-                        </Button>}
+                        </Button>
                       </>
                     ) : (
                       <Button

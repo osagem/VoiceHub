@@ -9,7 +9,6 @@ import { refreshModeStatus } from '@/stores/modeStatus'
 import { setEngineDraftDirty } from '@/stores/engineDraft'
 import WorkModeSection from './WorkModeSection'
 import CloudAPISection from './CloudAPISection'
-import CustomLocalModel from './CustomLocalModel'
 import LocalModeSection, { LocalModeAdvancedSection } from './LocalModeSection'
 import ServerSection from './ServerSection'
 import AsrTestSection from './AsrTestSection'
@@ -53,7 +52,7 @@ export default function VoiceEnginePage() {
 
         {/* id 供「工作模式」右上角的「待配置」徽标点击后滚动定位 */}
         <div id="engine-config" className="space-y-6">
-          {workMode === 'local' && <><CustomLocalModel /><LocalModeSection /></>}
+          {workMode === 'local' && <LocalModeSection />}
           {workMode === 'server' && <ServerSection />}
           {workMode === 'cloud_api' && <CloudAPISection />}
         </div>

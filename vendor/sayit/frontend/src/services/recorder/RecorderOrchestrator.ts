@@ -722,6 +722,9 @@ export class RecorderOrchestrator {
     void this.ensureClientRuntimeInfo()
     this.ensureConnection()
 
+    this.remoteTransport.start()
+    void bridge.listen<string>('voicehub-voice-error', event => this.overlayService.showError(event.payload))
+
     // 快捷键切换润色模式（由 Rust global_shortcut 触发）
     void bridge.listen('switch-preset', (event: unknown) => {
       const payload = (event as { payload?: { presetId?: string } })?.payload
@@ -759,6 +762,7 @@ export class RecorderOrchestrator {
     })
 
     bridge.onPTTDown((payload) => {
+      if (this.remoteSession) return
       this.notePTTDown(payload)
       this.logPTTEvent('down', payload)
       if (this.pttSuppressed || this.handsFreeMode) {
@@ -780,6 +784,7 @@ export class RecorderOrchestrator {
     })
 
     bridge.onPTTUp((payload) => {
+      if (this.remoteSession) return
       this.notePTTUp(payload)
       this.logPTTEvent('up', payload)
       if (this.pttSuppressed || this.handsFreeMode) {
@@ -807,6 +812,7 @@ export class RecorderOrchestrator {
     })
 
     bridge.onToggleHandsFree((payload) => {
+      if (this.remoteSession) return
       this.logPTTEvent('hands_free', payload)
       if (this.pttSuppressed) {
         addRuntimeEvent('info', 'ptt', 'event:hands_free ignored', {
@@ -829,6 +835,7 @@ export class RecorderOrchestrator {
   }
 
   cleanup() {
+    this.remoteTransport.stop()
     this.clearProcessingTimeout()
     this.clearMicMutedAutoCancelTimer()
     this.micMuteProbeSequence++
@@ -1671,7 +1678,7 @@ export class RecorderOrchestrator {
     this.overlayService.showWaiting()
     // 不等待上下文捕获、Provider 建连或 AudioWorklet 初始化：提前拿到系统静音标志，
     // 好让第一帧 PCM 一到就能立刻裁决（标志本身不足以判定，见 pendingOsMicMuted）。
-    void this.checkConfiguredMicMuted(runId)
+    if (!this.remoteSession) void this.checkConfiguredMicMuted(runId)
 
     const targetCapture = captureActiveInsertionTarget(undefined, {
       preserveExistingOnFailure: true,
@@ -1916,7 +1923,7 @@ export class RecorderOrchestrator {
       }
       // 录音一开始就查一次麦克风是否被系统静音，被静音则悬浮窗即时红色高警（不阻塞录音）
       // 用 getUserMedia 实际打开的设备再复核；若系统在初始化期间切换了默认麦克风，以这里为准。
-      void this.checkMicMuted(
+      if (!this.remoteSession) void this.checkMicMuted(
         captureResult.label || null,
         runId,
         ++this.micMuteProbeSequence,

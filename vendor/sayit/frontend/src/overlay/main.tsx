@@ -6,7 +6,12 @@ import '../index.css'
 
 // Transparent background for overlay window
 const style = document.createElement('style')
-style.textContent = 'html, body, #root { background: transparent !important; }'
+style.textContent = [
+  'html, body, #root { background: transparent !important; }',
+  // 高度链：result 阅读卡靠 h-full 限高形成卡内滚动；缺了它长正文会撑高
+  // body 并被 overflow:hidden 裁掉底部（Codex 交叉审查 2026-09-17）。
+  'html, body, #root { height: 100%; }',
+].join(String.fromCharCode(10))
 document.head.appendChild(style)
 
 void startWebviewKeyboardFallback()

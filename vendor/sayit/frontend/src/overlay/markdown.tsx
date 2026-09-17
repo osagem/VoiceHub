@@ -31,25 +31,49 @@ const BOLD_RE = /\*\*([^*]+)\*\*/
 const ITALIC_RE = /(?<!\*)\*([^*\n]+)\*(?!\*)/
 const CODE_RE = /`([^`\n]+)`/
 
-/** 行内解析：先挖行内代码（其中的 ** 不再解释），再扫加粗/斜体。 */
+/** 行内解析：单次扫描（O(n)）。行内代码原样不递归；加粗内部递归支持斜体嵌套。 */
 export function parseInline(raw: string): InlineToken[] {
   const tokens: InlineToken[] = []
-  let rest = raw
-  while (rest.length > 0) {
-    const codeMatch = rest.match(CODE_RE)
-    const boldMatch = rest.match(BOLD_RE)
-    const italicMatch = rest.match(ITALIC_RE)
-    // 取三者中最早出现的标记。
-    const candidates: Array<{ at: number; push: () => void }> = []
-    if (codeMatch) candidates.push({ at: codeMatch.index!, push: () => { tokens.push({ kind: 'code', text: codeMatch[1] }); rest = rest.slice(codeMatch.index! + codeMatch[0].length) } })
-    if (boldMatch) candidates.push({ at: boldMatch.index!, push: () => { tokens.push({ kind: 'bold', text: boldMatch[1] }); rest = rest.slice(boldMatch.index! + boldMatch[0].length) } })
-    if (italicMatch) candidates.push({ at: italicMatch.index!, push: () => { tokens.push({ kind: 'italic', text: italicMatch[1] }); rest = rest.slice(italicMatch.index! + italicMatch[0].length) } })
-    if (candidates.length === 0) break
-    const first = candidates.reduce((a, b) => (a.at <= b.at ? a : b))
-    if (first.at > 0) tokens.push({ kind: 'text', text: rest.slice(0, first.at) })
-    first.push()
+  let buffer = ''
+  let i = 0
+  const flush = () => {
+    if (buffer.length > 0) {
+      tokens.push({ kind: 'text', text: buffer })
+      buffer = ''
+    }
   }
-  if (rest.length > 0) tokens.push({ kind: 'text', text: rest })
+  while (i < raw.length) {
+    const ch = raw[i]
+    if (ch === '`') {
+      const close = raw.indexOf('`', i + 1)
+      if (close > i) {
+        flush()
+        tokens.push({ kind: 'code', text: raw.slice(i + 1, close) })
+        i = close + 1
+        continue
+      }
+    } else if (ch === '*' && raw[i + 1] === '*') {
+      const close = raw.indexOf('**', i + 2)
+      if (close > i) {
+        flush()
+        tokens.push({ kind: 'bold', text: raw.slice(i + 2, close) })
+        i = close + 2
+        continue
+      }
+    } else if (ch === '*' && raw[i + 1] !== '*' && i > 0 && raw[i - 1] !== '*') {
+      // 单星斜体：找下一个不被 ** 包裹的 *
+      const close = raw.indexOf('*', i + 1)
+      if (close > i && raw[close + 1] !== '*') {
+        flush()
+        tokens.push({ kind: 'italic', text: raw.slice(i + 1, close) })
+        i = close + 1
+        continue
+      }
+    }
+    buffer += ch
+    i += 1
+  }
+  flush()
   return tokens
 }
 
@@ -60,7 +84,7 @@ export function parseBlocks(src: string): Block[] {
   let paragraph: string[] = []
   let list: { ordered: boolean; items: string[] } | null = null
   let quote: string[] | null = null
-  let code: { text: string[] } | null = null
+  let code: { text: string[]; fenceLen: number } | null = null
 
   const flushParagraph = () => {
     if (paragraph.length > 0) {
@@ -88,7 +112,9 @@ export function parseBlocks(src: string): Block[] {
 
   for (const line of lines) {
     if (code) {
-      if (/^\s*```/.test(line)) {
+      // 结束栏必须不短于开栏：```` 包 ``` 示例时不被内层栏提前截断。
+      const fenceClose = line.match(/^\s*(`{3,})\s*$/)
+      if (fenceClose && fenceClose[1].length >= code.fenceLen) {
         blocks.push({ kind: 'code', text: code.text.join('\n') })
         code = null
       } else {
@@ -96,9 +122,10 @@ export function parseBlocks(src: string): Block[] {
       }
       continue
     }
-    if (/^\s*```/.test(line)) {
+    const fenceOpen = line.match(/^\s*(`{3,})/)
+    if (fenceOpen) {
       flushAll()
-      code = { text: [] }
+      code = { text: [], fenceLen: fenceOpen[1].length }
       continue
     }
     if (line.trim().length === 0) {

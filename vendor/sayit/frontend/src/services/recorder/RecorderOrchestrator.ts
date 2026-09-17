@@ -1735,7 +1735,7 @@ export class RecorderOrchestrator {
       if (textContext.selectedText && this.cachedProbeResult && !this.cachedProbeResult.editable) {
         this.currentPromptResolution = {
           ...this.currentPromptResolution,
-          systemPrompt: `${this.currentPromptResolution.systemPrompt}\n\n本次结果将在悬浮卡片中展示给用户阅读。请用基础 Markdown 组织输出：用「## 小节标题」分节、「- 」要点列表、「**重点**」加粗；保持言简意赅。不要输出表格、图片、链接或 HTML。`,
+          systemPrompt: `${this.currentPromptResolution.systemPrompt}\n\n本次结果将在悬浮卡片中展示给用户阅读。按用户口述的具体要求处理选中内容；适合分节或列举时，用「## 小节标题」和「- 」要点列表组织，重点可加粗，保持简洁（翻译等要求完整原文的指令则保持完整）。不要输出表格、图片、链接或 HTML。`,
           summary: `${this.currentPromptResolution.summary} | explain-card`,
         }
         addRuntimeEvent('info', 'recorder', 'Explain-card mode: markdown output requested', {})

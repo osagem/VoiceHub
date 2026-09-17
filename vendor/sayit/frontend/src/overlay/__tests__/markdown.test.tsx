@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client'
 import { act } from 'react'
 import { MarkdownResult, parseBlocks, parseInline } from '../markdown'
 
+const LF = String.fromCharCode(10)
+
 function renderToHtml(source: string): string {
   const container = document.createElement('div')
   const root = createRoot(container)
@@ -95,6 +97,29 @@ describe('rendering (escape safety)', () => {
     expect(html).toContain('<pre')
     expect(html).toContain('**not bold**')
     expect(html).not.toContain('<b>')
+  })
+
+  it('handles nested and mismatched inline markers gracefully (single-pass scanner)', () => {
+    // 加粗内含斜体：bold 原样（v1 不递归），不成对星号保持文本。
+    const tokens = parseInline('**bold *inner* end** and 2 x 3 = 6')
+    expect(tokens.some((token) => token.kind === 'bold' && token.text === 'bold *inner* end')).toBe(true)
+    expect(tokens.some((token) => token.kind === 'italic')).toBe(false)
+  })
+
+  it('four-backtick fence wraps an inner three-backtick sample', () => {
+    const blocks = parseBlocks(['````', 'markdown 示例：', '```js', 'code', '```', '结束', '````'].join(LF))
+    const codeBlock = blocks.find((b) => b.kind === 'code') as { kind: string; text: string } | undefined
+    expect(codeBlock).toBeTruthy()
+    expect(codeBlock!.text).toContain('```js')
+    expect(codeBlock!.text).toContain('结束')
+  })
+
+  it('parses a large document without quadratic blowup', () => {
+    const line = '要点 **加粗** 与 `code` 以及普通文字。'
+    const start = Date.now()
+    parseBlocks(Array(2000).fill(line).join(LF))
+    const elapsed = Date.now() - start
+    expect(elapsed).toBeLessThan(500)
   })
 
   it('renders ordered and unordered lists', () => {

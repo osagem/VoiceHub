@@ -180,7 +180,7 @@ export default function Overlay() {
           setStreamingOn(false)
         }
         setCopied(false)
-        if (payload.state !== 'fallback' && payload.state !== 'result' && hideTimerRef.current) {
+        if (payload.state !== 'fallback' && hideTimerRef.current) {
           clearTimeout(hideTimerRef.current)
           hideTimerRef.current = null
         }
@@ -216,6 +216,7 @@ export default function Overlay() {
         setWarningTone('warn')
         setStreamingText('')
         setStreamingOn(false)
+        setResultMarkdown('')
         setMicSourceMode(null)
         setMicSourceLabel('')
         setBars((prev) => Array(prev.length).fill(3))

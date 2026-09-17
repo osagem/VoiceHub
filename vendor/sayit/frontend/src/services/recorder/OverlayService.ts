@@ -394,6 +394,9 @@ export class OverlayService {
   showMarkdownResult(markdown: string, token = 0) {
     this.currentState = 'result'
     this.clearMicSourceHint()
+    // 上游惯例：每个 show* 先清旧 fallback 定时器——否则前一张 fallback 卡
+    // 的 10s 自动隐藏可能中途把驻留的 result 卡一起藏掉。
+    this.clearFallbackHideTimer()
     this.setEscapeMode(token > 0 ? 'dismiss_fallback' : 'off', token)
     void bridge.presentOverlay({
       state: 'result',

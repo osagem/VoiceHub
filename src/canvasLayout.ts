@@ -1,7 +1,7 @@
 /// 连线画布几何：设计尺寸 780×700，遥控器 152×620 居中（1:4.065 与
-/// RC003 实物照片一致）。锚点坐标按 RC003 实物照片逐键重新标定
-/// （黑色键面连通域分析：顶部 左电源/右语音、中部圆盘、左列 返回/主页/菜单、
-/// 右列 音量±/TV），与 src/assets/rc003-remote.webp 像素级对齐。
+/// RC003 实物照片一致）。锚点坐标按 RC003 实物照片逐键标定（与
+/// src/assets/rc003-remote.webp 像素级对齐；volume± 热区在照片上与
+/// back/home/menu 同行距对齐，2026-09-24 12 键模型恢复时补标）。
 
 import type { RemoteButtonId } from "./types";
 
@@ -29,11 +29,20 @@ interface Placement {
 }
 
 export const PLACEMENTS: Placement[] = [
-  { button: "up", side: "left", anchor: { x: 0.502, y: 0.136 }, targetY: 0.22 },
-  { button: "home", side: "left", anchor: { x: 0.294, y: 0.453 }, targetY: 0.46 },
-  { button: "menu", side: "left", anchor: { x: 0.295, y: 0.546 }, targetY: 0.7 },
-  { button: "ok", side: "right", anchor: { x: 0.502, y: 0.211 }, targetY: 0.34 },
-  { button: "down", side: "right", anchor: { x: 0.502, y: 0.286 }, targetY: 0.46 },
+  // 左列：自上而下 电源/上/左/主页/返回/菜单。
+  { button: "power", side: "left", anchor: { x: 0.242, y: 0.064 }, targetY: 0.08 },
+  { button: "up", side: "left", anchor: { x: 0.502, y: 0.136 }, targetY: 0.2 },
+  { button: "left", side: "left", anchor: { x: 0.198, y: 0.211 }, targetY: 0.32 },
+  { button: "home", side: "left", anchor: { x: 0.294, y: 0.453 }, targetY: 0.44 },
+  { button: "back", side: "left", anchor: { x: 0.294, y: 0.36 }, targetY: 0.56 },
+  { button: "menu", side: "left", anchor: { x: 0.295, y: 0.546 }, targetY: 0.68 },
+  // 右列：右/确定/下 + 音量±/TV（照片上与左列 返回/主页/菜单 同行）。
+  { button: "right", side: "right", anchor: { x: 0.806, y: 0.211 }, targetY: 0.2 },
+  { button: "ok", side: "right", anchor: { x: 0.502, y: 0.211 }, targetY: 0.32 },
+  { button: "down", side: "right", anchor: { x: 0.502, y: 0.286 }, targetY: 0.44 },
+  { button: "volume_up", side: "right", anchor: { x: 0.703, y: 0.361 }, targetY: 0.56 },
+  { button: "volume_down", side: "right", anchor: { x: 0.703, y: 0.454 }, targetY: 0.68 },
+  { button: "tv", side: "right", anchor: { x: 0.703, y: 0.547 }, targetY: 0.8 },
 ];
 
 export const VOICE_ANCHOR = { x: 0.759, y: 0.064 };

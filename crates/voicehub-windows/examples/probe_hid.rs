@@ -18,7 +18,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     TranslateMessage, MSG, WINDOW_STYLE, WM_INPUT, WNDCLASSW,
 };
 
-fn dump_preparsed(device: HANDLE) -> Option<u32> {
+fn dump_preparsed(device: HANDLE) -> Option<(u32, u16)> {
     unsafe {
         let mut size: u32 = 0;
         let _ = GetRawInputDeviceInfoW(Some(device), RIDI_PREPARSEDDATA, None, &mut size);
@@ -79,7 +79,7 @@ fn dump_preparsed(device: HANDLE) -> Option<u32> {
         } else {
             println!("    (no button caps, status=0x{:08X} count={count})", status.0);
         }
-        Some(caps.InputReportByteLength as u32)
+        Some((caps.InputReportByteLength as u32, caps.UsagePage))
     }
 }
 
@@ -113,7 +113,9 @@ fn short_name(name: &str) -> String {
 
 fn is_xiaomi(device: HANDLE) -> Option<String> {
     let name = device_name(device)?;
-    if name.to_lowercase().contains("vid_2717") {
+    // BLE HID-over-GATT 路径用 vid&012717（& 连接 + 4 位补零），USB 路径用 vid_2717。
+    let lower = name.to_lowercase();
+    if lower.contains("vid_2717") || lower.contains("vid&012717") {
         Some(short_name(&name))
     } else {
         None
@@ -167,23 +169,29 @@ fn enumerate_xiaomi_devices() {
             };
             if let Some(name) = is_xiaomi(item.hDevice) {
                 println!("  [{label}] {name}");
-                if item.dwType.0 == 2 {
-                    let report_bytes = dump_preparsed(item.hDevice);
-                    let lower = name.to_lowercase();
-                    let direct_tag: Option<&'static str> = if lower.contains("col02") {
-                        Some("consumer")
-                    } else if lower.contains("col04") {
-                        Some("vendor-ff01")
-                    } else if lower.contains("mi_02") {
-                        Some("vendor-ffef")
-                    } else {
-                        None
-                    };
-                    if let (Some(tag), Some(bytes)) = (direct_tag, report_bytes) {
-                        if bytes > 0 {
-                            if let Some(full_path) = device_name(item.hDevice) {
-                                spawn_direct_read(tag, full_path, bytes as usize);
-                            }
+                // BLE HID-over-GATT 路径无 mi_xx/colYY 后缀，按 Raw Input
+                // 设备类型 + TLC usage page 区分集合：键盘(1)直读看被丢弃
+                // 的 usage；HID(2) 按 usage page 分 consumer(0x0C)/vendor。
+                // preparsed 缺失时用 64B 兜底缓冲（ReadFile 按实际长度返回）。
+                let direct_tag = match item.dwType.0 {
+                    1 => dump_preparsed(item.hDevice)
+                        .map(|(bytes, _)| (bytes, "kb-direct"))
+                        .or(Some((64, "kb-direct"))),
+                    2 => dump_preparsed(item.hDevice).and_then(|(bytes, page)| {
+                        let tag = match page {
+                            0x0C => "consumer",
+                            0xFF01 => "vendor-ff01",
+                            0xFFEF => "vendor-ffef",
+                            _ => return None,
+                        };
+                        Some((bytes, tag))
+                    }),
+                    _ => None, // 鼠标集合 Raw Input 已覆盖，不直读
+                };
+                if let Some((bytes, tag)) = direct_tag {
+                    if bytes > 0 {
+                        if let Some(full_path) = device_name(item.hDevice) {
+                            spawn_direct_read(tag, full_path, bytes as usize);
                         }
                     }
                 }

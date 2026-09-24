@@ -5677,6 +5677,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "voicehub-hid-tap"
+version = "0.5.0"
+dependencies = [
+ "sha2",
+ "windows 0.62.2",
+]
+
+[[package]]
 name = "voicehub-sayit"
 version = "0.2.0"
 dependencies = [

@@ -22,8 +22,6 @@ const props = defineProps<{
   selected: string | null;
   activeButtons: Set<string>;
   voiceActive: boolean;
-  /** 不支持双击/长按的按键（二级槽禁用置灰）。 */
-  secondaryButtons: Set<string>;
 }>();
 
 const emit = defineEmits<{
@@ -39,6 +37,8 @@ type Slot = (typeof SLOTS)[number];
 /// 键名图标：与遥控器键面符号一致（OK/TV 无符号键用短文本）。
 const buttonIcons: Record<string, string> = {
   up: "▲", ok: "OK", down: "▼", home: "⌂", menu: "☰",
+  left: "◀", right: "▶", power: "⏻", back: "↩", tv: "TV",
+  volume_up: "+", volume_down: "−",
 };
 
 function buttonName(button: string): string {
@@ -65,7 +65,7 @@ function slotAction(button: string, slot: Slot): ButtonAction {
 
 function slotEnabled(button: string, slot: Slot): boolean {
   if (isPushToTalk(button)) return false; // 按住说话直通键：三槽挂起（后端已互斥）
-  return slot === "single" || props.secondaryButtons.has(button);
+  return true; // 全键二级：12 键三槽全开放
 }
 
 function isPushToTalk(button: string): boolean {

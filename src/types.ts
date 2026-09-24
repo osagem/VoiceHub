@@ -17,14 +17,21 @@ export type ButtonAction =
   | { kind: "show_desktop" }
   | { kind: "delete_line" };
 
-/** RC003 实有按键（2026-09-13 真机采集定案），与 Rust RemoteButton 枚举
- *  一一对应（契约测试 rustContract.test.ts 守护）。 */
+/** RC003 全量物理按键（12 键，2026-09-24 恢复被误拔的 7 键），与 Rust
+ *  RemoteButton 枚举一一对应（契约测试 rustContract.test.ts 守护）。 */
 export type RemoteButtonId =
   | "up"
   | "ok"
   | "down"
   | "home"
-  | "menu";
+  | "menu"
+  | "left"
+  | "right"
+  | "power"
+  | "back"
+  | "tv"
+  | "volume_up"
+  | "volume_down";
 
 export interface ButtonBinding {
   single: ButtonAction;
@@ -66,6 +73,8 @@ export interface AppSettings {
   voiceKeyTriggerMode: "ptt" | "hands_free";
   /** F5 拦截总开关：遥控器在线期间吞掉全部 F5（含真键盘），防止语音键泄漏刷新前台页面。 */
   f5GateEnabled: boolean;
+  /** 完整按键模式：管理员伴生进程直读遥控器 HID，12 键全接入且原生键零泄漏。伴生掉线自动回退 9 键基线。 */
+  fullKeyMode: boolean;
   launchAtLogin: boolean;
   language: Language;
   theme: Theme;

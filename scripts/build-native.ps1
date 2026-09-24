@@ -37,6 +37,10 @@ $env:TEMP = Join-Path $redirectRoot 'temp'
 # pnpm 在无 TTY 环境下要清空 node_modules 时会直接中止（ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY），
 # CI=true 让它免确认继续，避免 tauri 前置的 pnpm install 因 node_modules 状态错位挂死。
 $env:CI = 'true'
+# 本机 ccache(scoop/mingw64)包 MSVC cl.exe 后 ggml.c.obj 编译产物不落盘,
+# 链接必挂 LNK1181(2026-09-25 真机定案:release 侧 ggml-base.dir 为空)。
+# ggml 的 GGML_CCACHE 默认 ON,经 transcribe-cpp-sys 的参数口子强制禁用。
+$env:TRANSCRIBE_CMAKE_ARGS = "-DGGML_CCACHE=OFF"
 New-Item -ItemType Directory -Force -Path artifacts | Out-Null
 $ErrorActionPreference = 'Continue'
 function Invoke-VoiceHubBuild {

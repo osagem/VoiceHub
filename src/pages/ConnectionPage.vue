@@ -297,6 +297,13 @@ function setF5Gate(enabled: boolean) {
   if (!draft.value || draft.value.f5GateEnabled === enabled) return;
   draft.value = { ...draft.value, f5GateEnabled: enabled };
 }
+
+// 完整按键模式：拉起管理员伴生进程直读遥控器 HID（12 键全接入 + 原生键
+// 零泄漏）。开启时会弹一次 UAC 授权；伴生掉线主程序自动回退 9 键基线。
+function setFullKeyMode(enabled: boolean) {
+  if (!draft.value || draft.value.fullKeyMode === enabled) return;
+  draft.value = { ...draft.value, fullKeyMode: enabled };
+}
 </script>
 
 <template>
@@ -542,6 +549,17 @@ function setF5Gate(enabled: boolean) {
           class="switch"
           :class="{ on: draft.f5GateEnabled }"
           @click="setF5Gate(!draft.f5GateEnabled)"
+        ></button>
+      </div>
+      <div class="setting-row">
+        <div>
+          <div class="label">{{ t("connection.full_key.title") }}</div>
+          <div class="desc">{{ t("connection.full_key.hint") }}</div>
+        </div>
+        <button
+          class="switch"
+          :class="{ on: draft.fullKeyMode }"
+          @click="setFullKeyMode(!draft.fullKeyMode)"
         ></button>
       </div>
     </section>

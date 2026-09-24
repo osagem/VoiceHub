@@ -1,7 +1,6 @@
 //! 按键映射：每个按键 → { 单击 / 双击 / 长按 } 三槽动作。
 //!
-//! 语音键不参与映射（固定为开麦）。支持双击/长按的按键见
-//! `RemoteButton::supports_secondary`，其余按键双击/长按槽忽略。
+//! 语音键不参与映射（固定为开麦）。全部 12 个按键均支持双击/长按二级槽。
 
 use std::collections::HashMap;
 
@@ -71,24 +70,21 @@ impl ButtonMapping {
         }
     }
 
-    /// 手势 → 动作解析。不支持二级手势的按键上，双击/长按一律落到单击槽
-    /// （或 Disabled），避免手势识别出 DoubleClick 却查到空动作。
+    /// 手势 → 动作解析。全部按键支持三槽；长按槽已绑定动作时按住期由
+    /// 长按动作接管（抑制单击连发），长按槽为空则维持连发单击。
     pub fn resolve(&self, button: RemoteButton, gesture: Gesture) -> Option<ButtonAction> {
         let binding = self.get(button);
         let action = match gesture {
             // 按住说话直通键：三槽动作全部互斥（含滚轮 tick 走的 SingleClick）。
             _ if binding.push_to_talk => return None,
-            Gesture::SingleClick | Gesture::Repeat => binding.single,
-            Gesture::DoubleClick => {
-                if button.supports_secondary() {
-                    binding.double
-                } else {
-                    ButtonAction::Disabled
-                }
-            }
-            Gesture::LongPress => {
-                if button.supports_secondary() {
-                    binding.long
+            Gesture::SingleClick => binding.single,
+            Gesture::DoubleClick => binding.double,
+            Gesture::LongPress => binding.long,
+            Gesture::Repeat => {
+                // 长按槽为空 → 连发单击（方向键/音量±按住连发）；
+                // 长按槽有绑定 → 长按动作接管按住期，抑制连发（对齐参考实现）。
+                if binding.long == ButtonAction::Disabled {
+                    binding.single
                 } else {
                     ButtonAction::Disabled
                 }
@@ -102,6 +98,7 @@ impl ButtonMapping {
 }
 
 /// 出厂默认映射：导航键位 + 常用编辑组合（对齐 vibe-flow“通用导航”预设）。
+/// 电源/TV 无通用安全动作，缺省 Disabled（用户自配）。
 pub fn default_mapping() -> ButtonMapping {
     use crate::actions::vk;
     let shortcut = |vk: u16, m: u8, label: &str| {
@@ -119,6 +116,26 @@ pub fn default_mapping() -> ButtonMapping {
     mapping.set(
         RemoteButton::Ok,
         ButtonBinding::single(shortcut(vk::RETURN, 0, "Enter")),
+    );
+    mapping.set(
+        RemoteButton::Left,
+        ButtonBinding::single(shortcut(vk::LEFT, 0, "←")),
+    );
+    mapping.set(
+        RemoteButton::Right,
+        ButtonBinding::single(shortcut(vk::RIGHT, 0, "→")),
+    );
+    mapping.set(
+        RemoteButton::Back,
+        ButtonBinding::single(shortcut(vk::BROWSER_BACK, 0, "↩")),
+    );
+    mapping.set(
+        RemoteButton::VolumeUp,
+        ButtonBinding::single(ButtonAction::VolumeUp),
+    );
+    mapping.set(
+        RemoteButton::VolumeDown,
+        ButtonBinding::single(ButtonAction::VolumeDown),
     );
     mapping
 }
@@ -142,21 +159,38 @@ mod tests {
         );
     }
 
+    /// 全键二级：任意按键的 double/long 槽均可命中（以 Up 为代表——
+    /// 旧模型里它不支持二级）。
     #[test]
-    fn secondary_slots_only_for_supported_buttons() {
+    fn secondary_slots_resolve_for_all_buttons() {
         let mut m = ButtonMapping::default();
         let mut binding = ButtonBinding::default();
         binding.single = paste();
         binding.double = ButtonAction::ShowDesktop;
         m.set(RemoteButton::Home, binding.clone());
-        // Home 支持二级 → 双击命中 double 槽。
         assert_eq!(m.resolve(RemoteButton::Home, Gesture::DoubleClick), Some(ButtonAction::ShowDesktop));
 
         m.set(RemoteButton::Up, binding);
-        // Up 不支持二级 → 双击/长按为空。
-        assert_eq!(m.resolve(RemoteButton::Up, Gesture::DoubleClick), None);
-        assert_eq!(m.resolve(RemoteButton::Up, Gesture::LongPress), None);
+        assert_eq!(m.resolve(RemoteButton::Up, Gesture::DoubleClick), Some(ButtonAction::ShowDesktop));
         assert!(m.resolve(RemoteButton::Up, Gesture::SingleClick).is_some());
+        // 长按槽未配 → 长按解析为空，但双击不再被拦。
+        assert_eq!(m.resolve(RemoteButton::Up, Gesture::LongPress), None);
+    }
+
+    /// 连发语义：长按槽为空 → 连发单击；长按槽有绑定 → 长按接管、连发抑制。
+    #[test]
+    fn long_press_slot_suppresses_repeat() {
+        let mut m = ButtonMapping::default();
+        let mut binding = ButtonBinding::default();
+        binding.single = ButtonAction::VolumeUp;
+        binding.long = ButtonAction::ShowDesktop;
+        m.set(RemoteButton::Up, binding);
+        assert_eq!(m.resolve(RemoteButton::Up, Gesture::Repeat), None);
+
+        let mut plain = ButtonBinding::default();
+        plain.single = ButtonAction::VolumeUp;
+        m.set(RemoteButton::Down, plain);
+        assert_eq!(m.resolve(RemoteButton::Down, Gesture::Repeat), Some(ButtonAction::VolumeUp));
     }
 
     #[test]
@@ -200,8 +234,10 @@ mod tests {
                 serde_json::to_value(button).unwrap().as_str().unwrap(),
                 "key() 与 serde 名漂移：{key}"
             );
-            assert!(!key.contains('_'), "5 键模型键名应是无下划线单词：{key}");
         }
+        // 多词键名带下划线（12 键模型），确保 serde snake_case 命名稳定。
+        assert_eq!(ButtonMapping::key(RemoteButton::VolumeUp), "volume_up");
+        assert_eq!(ButtonMapping::key(RemoteButton::VolumeDown), "volume_down");
     }
 
     /// push_to_talk 字段向后兼容：旧配置 JSON（无该字段）反序列化为 false；

@@ -1,7 +1,8 @@
 //! 遥控器 HID 捕获：Raw Input（WM_INPUT）线程。
 //!
 //! 注册键盘页 + 消费者页 + 鼠标页设备，只接收选中遥控器的蓝牙 HID：
-//! - 键盘页报文：F5（usage 0x3E）沿 = 语音键
+//! - 键盘页报文：F5（usage 0x3E）沿 = 语音键；Home/菜单/左右/电源/TV
+//!   被翻译成 VK 后合成 consumer usage 集合（见 vk_remote_button）
 //! - 消费者页报文：usage 数组（report ID 1/2）→ 按键集合 → 沿事件
 //! - 选中遥控器若提供鼠标集合：左键 → Ok、滚轮 → Up/Down，忽略位移。
 //! USB VID_2717/PID_5070 是本机鼠标，不能当作遥控器型号或输入来源。
@@ -24,6 +25,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use voicehub_core::buttons::{parse_usage_report, RemoteButton, VoiceKeyHid};
+
+use crate::key_gate;
 
 /// 从 Raw Input 线程发往宿主的事件。
 #[derive(Debug, Clone, PartialEq)]
@@ -289,6 +292,32 @@ pub fn is_selected_remote(device_path: &str, selected_id: Option<&str>) -> bool 
     u64::from_str_radix(&octets.concat(), 16).ok() == Some(address)
 }
 
+/// 经典蓝牙键盘页 VK → 遥控器按键：合成 consumer usage 集合，
+/// 复用 UsageTracker 差分与手势状态机。`pub`：key_gate 消费端用同一张表
+/// 判定"该 VK 属于遥控器集合"（武装/等待/吞键）。
+/// 2026-09-24 真机采集（probe_hid，全键 ×2 定案）：
+/// 上=VK_UP(0x26/0x48)、OK=VK_RETURN(0x0D/0x1C)、下=VK_DOWN(0x28/0x50)、
+/// 左=VK_LEFT(0x25/0x4B)、右=VK_RIGHT(0x27/0x4D)、TV=VK_OEM_3(0xC0/0x29)、
+/// 主页=VK_HOME(0x24/0x47)、菜单=VK_APPS(0x5D/0x5D)；
+/// 电源=VK 0xFF + makecode 0x5E（Windows 无法映射该 makecode，VK 落到 0xFF；
+/// 旧表按 VK_SLEEP 0x5F 匹配是错的，真机实测零命中）。
+pub fn vk_remote_button(vkey: u16, make_code: u16) -> Option<RemoteButton> {
+    if vkey == 0xFF && make_code == 0x5E {
+        return Some(RemoteButton::Power);
+    }
+    Some(match vkey {
+        0x24 => RemoteButton::Home,
+        0x5D => RemoteButton::Menu,
+        0x25 => RemoteButton::Left,
+        0x27 => RemoteButton::Right,
+        0x26 => RemoteButton::Up,
+        0x28 => RemoteButton::Down,
+        0x0D => RemoteButton::Ok,
+        0xC0 => RemoteButton::Tv,
+        _ => return None,
+    })
+}
+
 /// 解析 RAWINPUT：键盘页找 F5 usage；鼠标页翻译触摸板导航；
 /// 消费者页解析 usage 数组报文。
 fn parse_raw_input(raw: &RAWINPUT, wparam: WPARAM) -> Vec<HidEvent> {
@@ -305,27 +334,31 @@ fn parse_raw_input(raw: &RAWINPUT, wparam: WPARAM) -> Vec<HidEvent> {
             if kb.VKey == 0x74 {
                 return vec![HidEvent::VoiceKey { pressed }];
             }
-            // 2026-09-13 真机采集（probe_hid）：RC003 的 Home / 菜单键走
-            // 经典蓝牙 HID 键盘页（设备路径 PID&32b8——同一遥控器的经典蓝牙
-            // 接口，BLE GATT 是 5070），Windows 翻译成 VK_HOME(0x24) /
-            // VK_APPS(0x5D)。合成 consumer usage 集合，复用 UsageTracker
-            // 差分与手势状态机（Home/菜单支持双击/长按）。
-            match kb.VKey {
-                0x24 => {
-                    return vec![HidEvent::UsageSet(if pressed {
-                        vec![RemoteButton::Home.hid_usage()]
-                    } else {
-                        Vec::new()
-                    })]
+            // 键盘页 VK → 遥控器键合成：F5 之外的已知 VK 按沿合成 usage
+            // 集合（真机采集定案，见 vk_remote_button 注释）。
+            // 设备来源由 into_events_for 的地址校验过滤，真键盘不会混入。
+            // 同沿先武装（key_gate 消费端据此吞 LL 钩子事件），再发事件。
+            if let Some(button) = vk_remote_button(kb.VKey, kb.MakeCode) {
+                // RI_KEY_E0（0x0002）= 扩展键前缀，与 LL 钩子 LLKHF_EXTENDED 对应。
+                const RI_KEY_E0: u16 = 0x0002;
+                // tap 模式下键盘通道 9 键由 tap 通道武装并直派（参考 Vibe-Remote
+                // _direct_hid_tap_active：tap socket 线程已接管普通按键，Raw Input
+                // 让位防双喂翻倍；L1 2026-09-25：被钩子吞掉的沿不生成 WM_INPUT）。
+                // tap 掉线时宿主立即关 tap 开关，本分支恢复驱动映射。
+                if key_gate::tap_mode() {
+                    return Vec::new();
                 }
-                0x5D => {
-                    return vec![HidEvent::UsageSet(if pressed {
-                        vec![RemoteButton::Menu.hid_usage()]
-                    } else {
-                        Vec::new()
-                    })]
-                }
-                _ => {}
+                key_gate::arm_keyboard_edge(
+                    kb.VKey as u32,
+                    kb.MakeCode as u32,
+                    kb.Flags & RI_KEY_E0 != 0,
+                    pressed,
+                );
+                return vec![HidEvent::UsageSet(if pressed {
+                    vec![button.hid_usage()]
+                } else {
+                    Vec::new()
+                })];
             }
             return vec![HidEvent::Activity];
         }
@@ -410,6 +443,10 @@ mod tests {
     }
 
     fn raw_input_vkey(vkey: u32, message: u32) -> Vec<HidEvent> {
+        raw_input_vkey_scan(vkey, message, 0)
+    }
+
+    fn raw_input_vkey_scan(vkey: u32, message: u32, make_code: u32) -> Vec<HidEvent> {
         use windows::Win32::Foundation::WPARAM;
         use windows::Win32::UI::Input::{RAWINPUT, RAWINPUTHEADER, RIM_TYPEKEYBOARD};
         let mut raw = RAWINPUT::default();
@@ -421,25 +458,43 @@ mod tests {
         };
         raw.data.keyboard.VKey = vkey as u16;
         raw.data.keyboard.Message = message;
+        raw.data.keyboard.MakeCode = make_code as u16;
         parse_raw_input(&raw, WPARAM(0)) // 0 = RIM_INPUT（前台）
     }
 
     #[test]
-    fn home_and_menu_vkeys_translate_to_usage_sets() {
-        // 真机采集结论：Home=VK_HOME(0x24)、菜单=VK_APPS(0x5D)，
-        // 按沿合成 usage 集合（手势状态机的上游），释放合成空集合。
-        let down = raw_input_vkey(0x24, 0x100);
+    fn keyboard_vkeys_translate_to_usage_sets() {
+        // 真机采集（probe_hid 全键 ×2 定案）：9 个键盘通道 VK + 电源
+        // （VK 0xFF + makecode 0x5E）。按沿合成 usage 集合（手势状态机的
+        // 上游），释放合成空集合。
+        let cases = [
+            (0x26u32, 0x48u32, RemoteButton::Up),
+            (0x0D, 0x1C, RemoteButton::Ok),
+            (0x28, 0x50, RemoteButton::Down),
+            (0x25, 0x4B, RemoteButton::Left),
+            (0x27, 0x4D, RemoteButton::Right),
+            (0xC0, 0x29, RemoteButton::Tv),
+            (0x24, 0x47, RemoteButton::Home),
+            (0x5D, 0x5D, RemoteButton::Menu),
+        ];
+        for (vkey, scan, button) in cases {
+            let down = raw_input_vkey_scan(vkey, 0x100, scan);
+            assert_eq!(
+                down,
+                vec![HidEvent::UsageSet(vec![button.hid_usage()])],
+                "VK 0x{vkey:02X} 按下沿应合成 {button:?}"
+            );
+            let up = raw_input_vkey_scan(vkey, 0x101, scan);
+            assert_eq!(up, vec![HidEvent::UsageSet(Vec::new())], "VK 0x{vkey:02X} 释放沿应合成空集合");
+        }
+        // 电源：VK 0xFF + makecode 0x5E（旧 VK_SLEEP 0x5F 实测零命中，已删）。
+        let power_down = raw_input_vkey_scan(0xFF, 0x100, 0x5E);
         assert_eq!(
-            down,
-            vec![HidEvent::UsageSet(vec![RemoteButton::Home.hid_usage()])]
+            power_down,
+            vec![HidEvent::UsageSet(vec![RemoteButton::Power.hid_usage()])]
         );
-        let up = raw_input_vkey(0x24, 0x101);
-        assert_eq!(up, vec![HidEvent::UsageSet(Vec::new())]);
-        let menu_down = raw_input_vkey(0x5D, 0x100);
-        assert_eq!(
-            menu_down,
-            vec![HidEvent::UsageSet(vec![RemoteButton::Menu.hid_usage()])]
-        );
+        let power_up = raw_input_vkey_scan(0xFF, 0x101, 0x5E);
+        assert_eq!(power_up, vec![HidEvent::UsageSet(Vec::new())]);
         // 其他 vkey 不是按键事件。
         assert_eq!(raw_input_vkey(0x41, 0x100), vec![HidEvent::Activity]);
     }

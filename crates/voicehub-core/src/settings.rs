@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::mapping::ButtonMapping;
 use crate::provider::{legacy_shortcuts, ProviderConfig};
 
-pub const SETTINGS_VERSION: u32 = 4;
+pub const SETTINGS_VERSION: u32 = 5;
 
 /// 录音键（语音键）的触发模式。
 ///
@@ -48,6 +48,10 @@ pub struct AppSettings {
     /// F5 拦截总开关：遥控器在线期间吞掉全部 F5（含真键盘），防止语音键
     /// 泄漏刷新前台页面。关闭后退回纯时序兜底（GATT 武装窗口 + 会话）。
     pub f5_gate_enabled: bool,
+    /// 完整按键模式（方案 B）：拉起管理员伴生进程直读遥控器 HID,
+    /// 12 键全接入且原生键零泄漏。伴生掉线自动回退 9 键基线行为。
+    #[serde(default)]
+    pub full_key_mode: bool,
     pub launch_at_login: bool,
     pub language: Language,
     pub theme: Theme,
@@ -87,6 +91,7 @@ impl Default for AppSettings {
             button_mapping_enabled: true,
             voice_key_trigger_mode: VoiceKeyTriggerMode::Ptt,
             f5_gate_enabled: true,
+            full_key_mode: false,
             launch_at_login: false,
             language: Language::System,
             theme: Theme::System,
@@ -166,6 +171,25 @@ impl AppSettings {
                 obj.insert("mapping".into(), mapping);
             }
         }
+        if version < 5 {
+            // v4 → v5：12 键模型回归。仅注入 5 个新键（left/right/back/volume±）
+            // 的出厂默认——它们在旧配置中不可能有绑定（v4 清洗已把 KEPT_BUTTONS
+            // 之外的键全清），or_insert 保证零覆盖风险；不碰 up/ok/down，
+            // 防止复活用户显式 Disabled 的绑定。
+            let defaults = serde_json::to_value(crate::mapping::default_mapping()).unwrap();
+            let default_bindings = defaults["bindings"].as_object().unwrap();
+            if let Some(bindings) = value
+                .get_mut("mapping")
+                .and_then(|m| m.get_mut("bindings"))
+                .and_then(|b| b.as_object_mut())
+            {
+                for key in ["left", "right", "back", "volume_up", "volume_down"] {
+                    bindings
+                        .entry(key.to_string())
+                        .or_insert_with(|| default_bindings[key].clone());
+                }
+            }
+        }
         if version < 3 {
             // v2 → v3：裁剪硬编码 Provider（微信输入法 / 豆包 / Win+H）。
             // 旧 kind 改写为 custom 并预填原默认键位——升级用户的外部工具
@@ -241,9 +265,13 @@ fn sanitize_removed_actions(mapping: &mut serde_json::Value) {
             _ => {}
         }
     };
-    // 12 键模型遗产：电源/左右/返回/TV 在 RC003 上不存在（2026-09-13 采集定案），
-    // 绑定表里残留的键清掉（不清洗也不致命——resolve 查不到即无动作，纯噪声）。
-    const KEPT_BUTTONS: [&str; 5] = ["up", "ok", "down", "home", "menu"];
+    // 12 键模型（2026-09-24 回归，见 buttons.rs 模块注释）：此前"采集定案
+    // 拔除"的 7 键已恢复，旧配置里残留的这些键重新生效（不清洗也不致命——
+    // resolve 查不到即无动作，纯噪声）。
+    const KEPT_BUTTONS: [&str; 12] = [
+        "up", "ok", "down", "home", "menu",
+        "left", "right", "power", "back", "tv", "volume_up", "volume_down",
+    ];
     bindings.retain(|key, _| KEPT_BUTTONS.contains(&key.as_str()));
     for binding in bindings.values_mut() {
         for field in ["single", "double", "long"] {
@@ -281,7 +309,7 @@ mod tests {
         let s = AppSettings::default();
         assert!(!s.onboarding_complete);
         assert_eq!(s.gain_db, 0.0);
-        assert_eq!(s.mapping.bindings.len(), 3, "出厂默认映射应已预置 3 个键");
+        assert_eq!(s.mapping.bindings.len(), 8, "出厂默认映射应已预置 8 个键");
         assert_eq!(s.schema_version, SETTINGS_VERSION);
     }
 
@@ -476,6 +504,30 @@ mod tests {
         let v3 = serde_json::json!({ "schemaVersion": 3 }).to_string();
         let s = AppSettings::load(&v3).unwrap();
         assert_eq!(s.mapping, crate::mapping::default_mapping());
+    }
+
+    /// v5 迁移：旧配置（v4 已清洗）缺 5 个新键 → 注入出厂默认；已有的
+    /// 显式绑定与未出现的键（up/ok/down 可能被用户显式 Disabled 后由
+    /// `set()` 移除）不被复活；迁移幂等。
+    #[test]
+    fn migrates_v4_injects_new_button_defaults() {
+        let v4 = serde_json::json!({
+            "schemaVersion": 4,
+            "mapping": { "bindings": {
+                "up": { "single": { "kind": "shortcut", "vk": 38, "modifiers": 0, "label": "↑" }, "double": { "kind": "disabled" }, "long": { "kind": "disabled" }, "pushToTalk": false }
+            } }
+        })
+        .to_string();
+        let s = AppSettings::load(&v4).unwrap();
+        assert_eq!(s.mapping.bindings["volume_up"].single, crate::actions::ButtonAction::VolumeUp);
+        assert_eq!(s.mapping.bindings["left"].single, crate::actions::ButtonAction::Shortcut { vk: 0x25, modifiers: 0, label: "←".into() });
+        // 未被注入的键不复活。
+        assert!(!s.mapping.bindings.contains_key("ok"));
+        assert!(!s.mapping.bindings.contains_key("power"));
+        assert!(!s.mapping.bindings.contains_key("tv"));
+        // 幂等：再 load 一次结果不变。
+        let json = serde_json::to_string(&s).unwrap();
+        assert_eq!(AppSettings::load(&json).unwrap(), s);
     }
 
     #[test]

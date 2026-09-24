@@ -2,6 +2,7 @@
 members = [
     "crates/voicehub-core",
     "crates/voicehub-windows",
+    "crates/voicehub-hid-tap",
     "src-tauri",
     "vendor/sayit/native",
 ]

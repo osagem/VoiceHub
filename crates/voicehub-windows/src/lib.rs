@@ -3,6 +3,7 @@
 //! 模块划分：
 //! - `send_input`：按键注入（快捷键 / 媒体键 / 音量）
 //! - `raw_input`：遥控器 HID 捕获（蓝牙来源和选中设备地址过滤；F5 + usage 数组报文）
+//! - `hid_tap`：管理员伴生进程直读通道的报文解析（tap 侧武装源 + 被丢弃的 3 键）
 //! - `key_gate`：低级键盘钩子，吞掉遥控器原生按键避免穿透
 //! - `audio`：WASAPI 输出到指定端点（VB-CABLE）
 //! - `foreground`：前台进程名（Smart Profiles 匹配）
@@ -16,6 +17,10 @@ pub mod audio;
 pub mod ble;
 #[cfg(windows)]
 pub mod foreground;
+#[cfg(windows)]
+pub mod hid_tap;
+#[cfg(windows)]
+pub mod hid_tap_host;
 #[cfg(windows)]
 pub mod key_gate;
 #[cfg(windows)]

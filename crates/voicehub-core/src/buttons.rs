@@ -15,13 +15,15 @@ fn usage_map() -> &'static HashMap<u16, RemoteButton> {
     })
 }
 
-/// RC003 实有按键（2026-09-13 真机采集定案）+ 语音键。
-/// 12 键模型是 RC001 布局的遗产：电源/返回/TV 三轮采集零报文（机身无键），
-/// 左右键在 RC003 触摸板上不存在（水平滑动=光标移动，产品决策不拦截），
-/// 音量±确认无数据源（Windows 只暴露键盘接口不暴露 consumer——参考项目
-/// 2026-09-05 调查归档；macOS 遗产），全部拔除。`hid_usage` 为遥控器 HID
-/// 报文里的 usage 值；语音键走键盘页 F5、Home/菜单走经典蓝牙键盘页 VK，
-/// 单独处理。
+/// RC003 全量物理按键（12 键）+ 语音键。
+///
+/// 2026-09-24 修正 2026-09-13 的"5 键定案"：当轮采集只覆盖 consumer 报文
+/// 与 Home/菜单两个 VK，结论"电源/返回/TV 机身无键"是采集视野不足——
+/// back 的 0xF1 报文实际已到达（buttons.rs 三字节报文测试），left/right/
+/// power/tv 走经典蓝牙键盘页 VK 通道（raw_input.rs 合成），volume± 走
+/// consumer 页 0x80/0x81（可达性以 probe_hid 真机复测为准）。编码对照
+/// 参考项目 device_profile.py:42-57 的 RC003 HID usage 表。
+/// 语音键走键盘页 F5，单独处理，不参与按键映射。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RemoteButton {
@@ -30,15 +32,29 @@ pub enum RemoteButton {
     Down,
     Home,
     Menu,
+    Left,
+    Right,
+    Power,
+    Back,
+    Tv,
+    VolumeUp,
+    VolumeDown,
 }
 
 impl RemoteButton {
-    pub const ALL: [RemoteButton; 5] = [
+    pub const ALL: [RemoteButton; 12] = [
         RemoteButton::Up,
         RemoteButton::Ok,
         RemoteButton::Down,
         RemoteButton::Home,
         RemoteButton::Menu,
+        RemoteButton::Left,
+        RemoteButton::Right,
+        RemoteButton::Power,
+        RemoteButton::Back,
+        RemoteButton::Tv,
+        RemoteButton::VolumeUp,
+        RemoteButton::VolumeDown,
     ];
 
     pub fn hid_usage(self) -> u16 {
@@ -48,21 +64,18 @@ impl RemoteButton {
             RemoteButton::Down => 0x51,
             RemoteButton::Home => 0x4A,
             RemoteButton::Menu => 0x65,
+            RemoteButton::Left => 0x50,
+            RemoteButton::Right => 0x4F,
+            RemoteButton::Power => 0x66,
+            RemoteButton::Back => 0xF1,
+            RemoteButton::Tv => 0x35,
+            RemoteButton::VolumeUp => 0x80,
+            RemoteButton::VolumeDown => 0x81,
         }
     }
 
     pub fn from_hid_usage(usage: u16) -> Option<Self> {
         usage_map().get(&usage).copied()
-    }
-
-    /// 支持双击 / 长按二级动作的按键（其余只有单击）。
-    pub fn supports_secondary(self) -> bool {
-        matches!(
-            self,
-            RemoteButton::Home
-                | RemoteButton::Menu
-                | RemoteButton::Ok
-        )
     }
 }
 
@@ -135,11 +148,14 @@ impl VoiceKeyHid {
 mod tests {
     use super::*;
 
+    /// 全键二级：12 键的 usage ↔ 枚举双向一致（含 volume± 的 0x80/0x81）。
     #[test]
     fn usage_roundtrip_for_all_buttons() {
         for button in RemoteButton::ALL {
             assert_eq!(RemoteButton::from_hid_usage(button.hid_usage()), Some(button));
         }
+        assert_eq!(RemoteButton::from_hid_usage(0x80), Some(RemoteButton::VolumeUp));
+        assert_eq!(RemoteButton::from_hid_usage(0x81), Some(RemoteButton::VolumeDown));
     }
 
     #[test]
@@ -176,13 +192,5 @@ mod tests {
         assert!(edges.contains(&ButtonEdge { button: RemoteButton::Up, pressed: false }));
         assert!(edges.contains(&ButtonEdge { button: RemoteButton::Down, pressed: true }));
         assert_eq!(edges.len(), 2);
-    }
-
-    #[test]
-    fn secondary_buttons_subset() {
-        assert!(RemoteButton::Home.supports_secondary());
-        assert!(RemoteButton::Ok.supports_secondary());
-        assert!(RemoteButton::Menu.supports_secondary());
-        assert!(!RemoteButton::Up.supports_secondary());
     }
 }

@@ -12,6 +12,10 @@ if ($SkipInstaller) { $buildArgs += '-SkipInstaller' }
 powershell @buildArgs
 if ($LASTEXITCODE -ne 0) { throw "tauri build failed" }
 
+# 遥控器接管伴生不在 tauri app 依赖树里,tauri build 不会编它;单独补 release 版。
+& cargo build --release -p voicehub-hid-tap -j 4
+if ($LASTEXITCODE -ne 0) { throw "companion build failed" }
+
 $release = "target/release"
 $bundle = "$release/bundle"
 $out = "artifacts"
@@ -33,6 +37,9 @@ if (-not $SkipInstaller) {
 $portable = "$out/VoiceHub-portable"
 New-Item -ItemType Directory -Force -Path $portable | Out-Null
 Copy-Item "$release/voicehub-app.exe" "$portable/VoiceHub.exe" -Force
+# 遥控器接管伴生与主 exe 同目录(hid_tap_host::default_companion_path 按
+# current_exe 父目录解析);gadget DLL 由伴生 fetch 脚本落盘 %PROGRAMDATA%。
+Copy-Item "$release/voicehub-hid-tap.exe" $portable -Force
 Copy-Item "src-tauri/transcribe-libs/*.dll" $portable -Force
 Copy-Item "vendor/sayit/native/resources" $portable -Recurse -Force
 Copy-Item "vendor/sayit/LICENSE" "$portable/LICENSE-SayIt" -Force

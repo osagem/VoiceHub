@@ -41,8 +41,7 @@ const selectedButton = ref<RemoteButtonId | null>(null);
 const editingSlot = ref<"single" | "double" | "long">("single");
 const showPicker = ref(false);
 
-// 支持双击/长按槽的键（与 Rust supports_secondary 保持一致）。
-const SECONDARY_BUTTONS = new Set(["home", "menu", "ok"]);
+// 全键二级：12 键的单击/双击/长按三槽全部开放（后端 resolve 已全键支持）。
 
 function selectButton(button: string) {
   selectedButton.value = button as RemoteButtonId;
@@ -119,7 +118,6 @@ function toggleMapping(enabled: boolean) {
         :selected="selectedButton"
         :active-buttons="activeButtons ?? new Set()"
         :voice-active="voiceActive ?? false"
-        :secondary-buttons="SECONDARY_BUTTONS"
         @select-button="selectButton"
         @edit-slot="editSlot"
       />

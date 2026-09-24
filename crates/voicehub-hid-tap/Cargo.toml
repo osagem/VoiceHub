@@ -1,0 +1,27 @@
+[package]
+name = "voicehub-hid-tap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "VoiceHub admin companion: injects a Frida Gadget into the RC003 WUDF host and relays HidOverGatt reports over a named pipe"
+
+[[bin]]
+name = "voicehub-hid-tap"
+path = "src/main.rs"
+
+[dependencies]
+sha2 = "0.10"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Registry",
+    "Win32_System_Threading",
+] }

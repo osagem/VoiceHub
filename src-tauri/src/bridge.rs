@@ -11,12 +11,12 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter};
 
 use voicehub_core::actions::ButtonAction;
-use voicehub_core::buttons::RemoteButton;
+use voicehub_core::buttons::{RemoteButton, VoiceKeyHid};
 use voicehub_core::gesture::{Gesture, GestureRecognizer};
 use voicehub_core::provider::ProviderTrigger;
 use voicehub_core::settings::{AppSettings, VoiceKeyTriggerMode, VoiceSessionRecord};
@@ -25,6 +25,7 @@ use voicehub_core::statistics::{UsageEvent, UsageStatistics};
 use crate::store::Store;
 use voicehub_windows::audio::AudioRuntime;
 use voicehub_windows::ble::{BleEvent, BleRuntime};
+use voicehub_windows::hid_tap_host::{self, TapConfig, TapHandle};
 use voicehub_windows::key_gate;
 use voicehub_windows::raw_input::{spawn_hid_monitor, HidEvent, HidInput, UsageTracker};
 
@@ -52,10 +53,6 @@ pub enum UiEvent {
 
 struct BridgeInner {
     settings: AppSettings,
-    /// 最近一次通过设备校验的遥控器 HID 路径——key_gate 吞掉的 tracked 键
-    /// 边沿要用它重新进入 into_events_for 的设备校验（LL 吞键会阻断同一
-    /// 事件的 Raw Input 投递，主链路此时收不到）。
-    last_remote_kb_path: String,
     statistics: UsageStatistics,
     gesture: GestureRecognizer,
     usage_tracker: UsageTracker,
@@ -82,6 +79,12 @@ pub struct Bridge {
     /// dispatcher 通道的发送端副本：key_gate 边沿 sink（钩子线程）用它把
     /// 吞掉的 tracked 键边沿无阻塞转发进主分发线程。
     dispatcher_tx: Mutex<Option<std::sync::mpsc::Sender<InternalEvent>>>,
+    /// 完整按键模式（方案 B）：管理员伴生进程宿主句柄；None = 未启用/已降级。
+    tap: Mutex<Option<TapHandle>>,
+    /// tap 启动时刻（UAC 宽限判定：30s 内连不上视为用户拒绝提权）。
+    tap_started: Mutex<Option<Instant>>,
+    /// HID 通道发送端副本（tap 事件与 Raw Input 共用转发线程）。
+    hid_tx: Mutex<Option<std::sync::mpsc::Sender<HidInput>>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -112,7 +115,6 @@ impl Bridge {
         let bridge = Arc::new(Self {
             inner: Mutex::new(BridgeInner {
                 settings,
-                last_remote_kb_path: String::new(),
                 statistics,
                 gesture: GestureRecognizer::new(),
                 usage_tracker: UsageTracker::default(),
@@ -132,12 +134,15 @@ impl Bridge {
             remote_voice: Mutex::new(Default::default()),
             voice_provider: Mutex::new(None),
             dispatcher_tx: Mutex::new(None),
+            tap: Mutex::new(None),
+            tap_started: Mutex::new(None),
+            hid_tx: Mutex::new(None),
         });
 
         // HID 监视。
         {
             let (hid_tx, hid_rx) = channel::<HidInput>();
-            let _ = spawn_hid_monitor(hid_tx);
+            let _ = spawn_hid_monitor(hid_tx.clone());
             let forward = tx.clone();
             std::thread::Builder::new()
                 .name("vh-hid-forward".into())
@@ -147,6 +152,7 @@ impl Bridge {
                     }
                 })
                 .expect("spawn hid forward");
+            *lock(&bridge.hid_tx) = Some(hid_tx);
         }
 
         // 电源通知。
@@ -193,19 +199,6 @@ impl Bridge {
         *lock(&bridge.dispatcher_tx) = Some(tx.clone());
 
         key_gate::install();
-
-        // tracked 键边沿 sink：钩子线程只做无阻塞转发（channel send），
-        // 映射执行在 dispatcher 线程——tap 注入带 sleep，绝不能卡键盘管线。
-        {
-            let sink_bridge = bridge.clone();
-            key_gate::set_edge_sink(std::sync::Arc::new(move |vk, pressed| {
-                sink_bridge.feed_remote_kb_edge(vk, pressed);
-            }));
-        }
-        {
-            let inner = lock(&bridge.inner);
-            key_gate::set_tracked_keys(tracked_mask(&inner.settings));
-        }
 
         // 恢复上次的端点与连接。
         let (endpoint, device_id, onboarding_done) = {
@@ -257,11 +250,91 @@ impl Bridge {
             inner.settings.f5_gate_enabled
         };
         key_gate::set_gate_enabled(f5_gate);
+        // 完整按键模式：上次开启过则随启动恢复(伴生 UAC 拉起一次)。
+        let full_key_mode = lock(&bridge.inner).settings.full_key_mode;
+        if full_key_mode {
+            if let Err(error) = bridge.start_hid_tap() {
+                log::warn!("[hid-tap] startup failed: {error}");
+            }
+        }
         bridge
     }
 
     pub fn settings(&self) -> AppSettings {
         lock(&self.inner).settings.clone()
+    }
+
+    /// 拉起完整按键模式伴生(需要 UAC 确认;失败仅记日志,不影响其他功能)。
+    fn start_hid_tap(self: &Arc<Self>) -> Result<(), String> {
+        let settings = self.settings();
+        let Some(paired) = settings
+            .paired_device_id
+            .as_deref()
+            .filter(|id| !id.is_empty())
+        else {
+            return Err("未配对遥控器,完整按键模式不可用".into());
+        };
+        let address = hid_tap_host::paired_device_address(paired)
+            .ok_or_else(|| format!("配对设备地址解析失败: {paired}"))?;
+        let exe_path = hid_tap_host::default_companion_path()?;
+        if !exe_path.exists() {
+            return Err(format!("伴生程序不存在: {}", exe_path.display()));
+        }
+        let gadget_dll = hid_tap_host::default_gadget_dll()
+            .ok_or("无法解析 Gadget 资产目录(PROGRAMDATA 缺失)")?;
+        if !gadget_dll.exists() {
+            return Err(format!(
+                "Gadget 资产缺失: {}(需运行 output/fetch-frida-gadget.ps1 下载)",
+                gadget_dll.display()
+            ));
+        }
+        let config = TapConfig {
+            pipe_name: format!("voicehub-hid-tap-{}", std::process::id()),
+            exe_path,
+            vid: VoiceKeyHid::VENDOR_ID,
+            pid: VoiceKeyHid::PRODUCT_ID_RC001,
+            address: Some(address),
+            port: hid_tap_host::TAP_PORT,
+            gadget_dll,
+        };
+        let tap_tx = lock(&self.hid_tx).clone().ok_or("HID 通道未就绪")?;
+        let handle = hid_tap_host::start(config, tap_tx)?;
+        *lock(&self.tap_started) = Some(Instant::now());
+        *lock(&self.tap) = Some(handle);
+        log::info!("[hid-tap] companion launching (UAC prompt expected)");
+        Ok(())
+    }
+
+    /// 停止伴生并回退 9 键基线(tap 模式关闭 → 钩子零等待放行)。
+    fn stop_hid_tap(self: &Arc<Self>) {
+        if let Some(handle) = lock(&self.tap).take() {
+            drop(handle); // 取消挂起管道 IO 并收线程
+        }
+        *lock(&self.tap_started) = None;
+        key_gate::set_tap_mode(false);
+        log::info!("[hid-tap] companion stopped (fallback to 9-key mode)");
+    }
+
+    /// tap 健康巡检(每 ~1s):UAC 宽限 30s;超时仍未连上 / 伴生退出即降级。
+    fn check_hid_tap_health(self: &Arc<Self>) {
+        let serving = lock(&self.tap).as_ref().map(|handle| handle.is_serving());
+        match serving {
+            Some(true) => {}
+            Some(false) => {
+                let elapsed = lock(&self.tap_started)
+                    .as_ref()
+                    .map(|started| started.elapsed())
+                    .unwrap_or_default();
+                if elapsed < Duration::from_secs(30) {
+                    return; // UAC 弹窗待确认
+                }
+                log::warn!(
+                    "[hid-tap] companion not serving (UAC declined / crashed); falling back to 9-key mode"
+                );
+                self.stop_hid_tap();
+            }
+            None => {}
+        }
     }
 
     pub fn poll_remote_voice(&self) -> Option<crate::remote_voice::Packet> {
@@ -270,6 +343,11 @@ impl Bridge {
 
     pub fn statistics(&self) -> UsageStatistics {
         lock(&self.inner).statistics.clone()
+    }
+
+    /// 完整按键模式伴生状态（诊断页用）：None = 未启用；Some(在服?)。
+    pub fn hid_tap_serving(&self) -> Option<bool> {
+        lock(&self.tap).as_ref().map(|handle| handle.is_serving())
     }
 
     fn emit_ui(&self, event: UiEvent) {
@@ -282,11 +360,12 @@ impl Bridge {
                 // key-gate 自愈：钩子线程 panic / 消息泵停转后 HOOK 标志已被
                 // 清掉（key_gate::install 的退出路径），每 ~1s 自检重装一次，
                 // 避免 F5 保护静默失效到下次重启。
-                if self.gate_check_tick.fetch_add(1, Ordering::Relaxed).is_multiple_of(64)
-                    && !key_gate::is_installed()
-                {
-                    log::warn!("[key-gate] hook lost; reinstalling");
-                    key_gate::install();
+                if self.gate_check_tick.fetch_add(1, Ordering::Relaxed).is_multiple_of(64) {
+                    if !key_gate::is_installed() {
+                        log::warn!("[key-gate] hook lost; reinstalling");
+                        key_gate::install();
+                    }
+                    self.check_hid_tap_health();
                 }
                 let events = lock(&self.inner).gesture.tick(now_ms());
                 for gesture_event in events {
@@ -315,7 +394,6 @@ impl Bridge {
 
     fn handle_hid(self: &Arc<Self>, input: HidInput) {
         let mut inner = lock(&self.inner);
-        inner.last_remote_kb_path = input.device_path.clone();
         let events = input.into_events_for(inner.settings.paired_device_id.as_deref());
         let mut gestures = Vec::new();
         let mut counted = false;
@@ -754,28 +832,6 @@ impl Bridge {
         self.persist_statistics();
     }
 
-    /// key_gate 边沿 sink 的入口（钩子线程调用，仅做 channel 转发）：
-    /// 吞掉的 Home/菜单键转成 usage 集合，套最近的真实遥控器设备路径
-    /// 走与 Raw Input 完全相同的主链路（差分 → 手势 → 动作）。
-    fn feed_remote_kb_edge(self: &Arc<Self>, vk: u32, pressed: bool) {
-        let usage = match vk {
-            0x24 => RemoteButton::Home.hid_usage(),
-            0x5D => RemoteButton::Menu.hid_usage(),
-            _ => return,
-        };
-        let path = lock(&self.inner).last_remote_kb_path.clone();
-        if path.is_empty() {
-            log::debug!("[key-gate] tracked edge dropped: no remote path seen yet");
-            return;
-        }
-        let events = vec![HidEvent::UsageSet(if pressed { vec![usage] } else { Vec::new() })];
-        let input = HidInput { device_path: path, events };
-        let tx = lock(&self.dispatcher_tx);
-        if let Some(tx) = tx.as_ref() {
-            let _ = tx.send(InternalEvent::Hid(input));
-        }
-    }
-
     fn trigger_provider(self: &Arc<Self>, trigger: ProviderTrigger) {
         use voicehub_windows::send_input::{press, release, tap, KeyChord};
         let result = match trigger {
@@ -813,6 +869,8 @@ impl Bridge {
         let language_changed;
         let voice_mode_changed;
         let f5_gate_changed;
+        let full_key_changed;
+        let paired_changed;
         let engine_hooks_changed;
         {
             let mut inner = lock(&self.inner);
@@ -825,6 +883,8 @@ impl Bridge {
             language_changed = settings.language != previous.language;
             voice_mode_changed = settings.voice_key_trigger_mode != previous.voice_key_trigger_mode;
             f5_gate_changed = settings.f5_gate_enabled != previous.f5_gate_enabled;
+            full_key_changed = settings.full_key_mode != previous.full_key_mode;
+            paired_changed = settings.paired_device_id != previous.paired_device_id;
             engine_hooks_changed = settings.provider.kind != previous.provider.kind;
             if settings.paired_device_id != previous.paired_device_id {
                 inner.gesture.reset();
@@ -857,6 +917,15 @@ impl Bridge {
         if f5_gate_changed {
             key_gate::set_gate_enabled(settings.f5_gate_enabled);
         }
+        if full_key_changed || (paired_changed && settings.full_key_mode) {
+            // 完整按键模式开关切换 / 配对目标变化:伴生按新地址重启。
+            self.stop_hid_tap();
+            if settings.full_key_mode {
+                if let Err(error) = self.start_hid_tap() {
+                    log::warn!("[hid-tap] start failed: {error}");
+                }
+            }
+        }
         if engine_hooks_changed {
             // 语音工具切进/切出内嵌引擎：引擎快捷键钩子随之启停。
             voicehub_sayit::set_hotkey_hooks_enabled(
@@ -864,8 +933,6 @@ impl Bridge {
                 settings.provider.kind == voicehub_core::provider::ProviderKind::SayIt,
             );
         }
-        // 映射变化即同步 tracked 键接管集（Home/菜单配置了动作或 PTT 即接管）。
-        key_gate::set_tracked_keys(tracked_mask(&settings));
         Ok(())
     }
 
@@ -971,26 +1038,6 @@ impl Bridge {
     pub fn set_gain(&self, gain_db: f64) {
         self.ble.set_gain(gain_db);
     }
-}
-
-/// 映射里配置了任意动作或 PTT 的 tracked 键（Home/菜单）位掩码——
-/// 「配置即接管」：一旦配置，遥控器在线期间该键物理事件由映射接管。
-fn tracked_mask(settings: &AppSettings) -> u32 {
-    let configured = |key: &str| {
-        settings
-            .mapping
-            .bindings
-            .get(key)
-            .is_some_and(|binding| *binding != voicehub_core::mapping::ButtonBinding::default())
-    };
-    let mut mask = 0;
-    if configured("home") {
-        mask |= key_gate::TRACK_HOME;
-    }
-    if configured("menu") {
-        mask |= key_gate::TRACK_APPS;
-    }
-    mask
 }
 
 fn action_label(action: &ButtonAction) -> String {

@@ -127,6 +127,11 @@ const chartMax = computed(() => Math.max(1, ...chart.value.map((d) => d.ms)));
 const buttonNames = computed<Record<string, string>>(() => ({
   up: t("buttons.key_names.up"), ok: "OK", down: t("buttons.key_names.down"),
   home: t("buttons.key_names.home"), menu: t("buttons.key_names.menu"),
+  left: t("buttons.key_names.left"), right: t("buttons.key_names.right"),
+  power: t("buttons.key_names.power"), back: t("buttons.key_names.back"),
+  tv: t("buttons.key_names.tv"),
+  volume_up: t("buttons.key_names.volume_up"),
+  volume_down: t("buttons.key_names.volume_down"),
 }));
 </script>
 

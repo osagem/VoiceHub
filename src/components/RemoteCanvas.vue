@@ -47,6 +47,10 @@ const keys: KeySpec[] = [
   { id: "home", x: 29.4, y: 45.3, w: 44, h: 44, round: true },
   { id: "menu", x: 29.5, y: 54.6, w: 44, h: 44, round: true },
   { id: "tv", x: 70.3, y: 54.7, w: 44, h: 44, round: true },
+  // 音量±：照片上与左列 返回/主页 同行距（参考项目 remote_layout 右列顺序
+  // 音量+ 在上、音量− 居中、TV 在下），坐标与 canvasLayout PLACEMENTS 同标。
+  { id: "volume_up", x: 70.3, y: 36.1, w: 44, h: 44, round: true },
+  { id: "volume_down", x: 70.3, y: 45.4, w: 44, h: 44, round: true },
 ];
 
 function style(key: KeySpec) {

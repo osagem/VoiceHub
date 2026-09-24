@@ -4,8 +4,6 @@ use std::sync::Arc;
 
 use tauri::{Manager, State};
 
-use voicehub_core::buttons::RemoteButton;
-use voicehub_core::gesture::Gesture;
 use voicehub_core::settings::AppSettings;
 use voicehub_core::statistics::UsageStatistics;
 
@@ -234,30 +232,52 @@ pub fn run_diagnostics(bridge: State<'_, Arc<Bridge>>, app: tauri::AppHandle) ->
         }
     });
 
-    // F5 吞键闸（三态：未安装 / 常驻拦截中 / 时序兜底）。
+    // 吞键闸（三态：未安装 / 武装-消费抑制中 / 时序兜底）。
     items.push(if voicehub_windows::key_gate::is_installed() {
         if voicehub_windows::key_gate::is_persistent_armed() {
             DiagnosticItem {
                 id: "key_gate".into(),
-                title: "语音键拦截".into(),
-                detail: "已安装；遥控器在线，F5 常驻拦截中（含键盘 F5，刷新请用 Ctrl+R）".into(),
+                title: "按键接管".into(),
+                detail: "已安装；遥控器在线，按键武装-消费抑制生效中（遥控器按键不漏原生键，物理键盘不受影响；含键盘 F5，刷新请用 Ctrl+R）".into(),
                 status: "ok".into(),
             }
         } else {
             DiagnosticItem {
                 id: "key_gate".into(),
-                title: "语音键拦截".into(),
-                detail: "已安装；当前为时序兜底模式（遥控器离线或拦截开关已关闭），语音键漏出仍可能刷新前台页面".into(),
+                title: "按键接管".into(),
+                detail: "已安装；遥控器离线或拦截开关已关闭，物理键盘原生行为完整保留，语音键漏出仍可能刷新前台页面".into(),
                 status: "info".into(),
             }
         }
     } else {
         DiagnosticItem {
             id: "key_gate".into(),
-            title: "语音键拦截".into(),
-            detail: "F5 吞键闸未生效（约 1 秒后自动重装；若持续未生效请重启声枢）".into(),
+            title: "按键接管".into(),
+            detail: "吞键闸未生效（约 1 秒后自动重装；若持续未生效请重启声枢）".into(),
             status: "warn".into(),
         }
+    });
+
+    // 完整按键模式伴生（方案 B：12 键全接入）。
+    items.push(match bridge.hid_tap_serving() {
+        Some(true) => DiagnosticItem {
+            id: "hid_tap".into(),
+            title: "完整按键模式".into(),
+            detail: "伴生进程在服：12 键全接入（返回/音量键可用），按键不漏原生动作".into(),
+            status: "ok".into(),
+        },
+        Some(false) => DiagnosticItem {
+            id: "hid_tap".into(),
+            title: "完整按键模式".into(),
+            detail: "伴生进程未在服，已自动回退 9 键普通模式（返回/音量键不可用；可关闭后重新开启该模式重试）".into(),
+            status: "warn".into(),
+        },
+        None => DiagnosticItem {
+            id: "hid_tap".into(),
+            title: "完整按键模式".into(),
+            detail: "未开启：普通模式（9 键映射，返回/音量键不可用）".into(),
+            status: "info".into(),
+        },
     });
 
     // Provider 提示。

@@ -145,8 +145,6 @@ fn arm_edge_impl(vk: u32, scan: u32, extended: bool, pressed: bool) {
         expires_ms: now + ARM_LIFETIME_MS,
     });
     drop(table);
-    // 临时打点(排查用):证明 Raw Input→武装表链路活着。
-    log::info!("[key-gate] arm vk=0x{vk:02X} scan=0x{scan:02X} ext={extended} pressed={pressed}");
     ARM_SIGNAL.notify_all();
 }
 
@@ -408,12 +406,6 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
                 // tap 关闭/掉线或遥控器离线 → 零等待放行,物理键盘零影响。
                 let extended = (kb.flags & LLKHF_EXTENDED).0 != 0;
                 let persistent = persistent_armed();
-                let tap = TAP_MODE.load(Ordering::Relaxed);
-                // 临时打点(排查用):钩子侧看到遥控器 VK 集合按键的全貌。
-                log::info!(
-                    "[key-gate] hook vk=0x{vk:02X} scan=0x{:02X} ext={extended} up={is_up} persistent={persistent} tap={tap}",
-                    kb.scanCode
-                );
                 if TAP_MODE.load(Ordering::Relaxed) {
                     // 持续会话:此前按下沿已被 tap 武装命中吞掉——按住期键盘
                     // 自动重复的 DOWN 沿(无 tap 武装)与 UP 沿不再等待武装,

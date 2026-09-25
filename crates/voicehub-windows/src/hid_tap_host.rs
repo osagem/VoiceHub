@@ -26,7 +26,6 @@ use windows::Win32::System::Pipes::{
 
 use crate::hid_tap::{edge_action, parse_report, usage_set_event, TapAction, TapParser};
 use crate::raw_input::HidInput;
-use voicehub_core::mapping::ButtonMapping;
 
 /// tap TCP 监听端口(伴生侧同名常量;独立于 Vibe-Remote 的 30684,避免共存冲突)。
 pub const TAP_PORT: u16 = 31727;
@@ -212,7 +211,7 @@ fn serve(
     connected.store(true, Ordering::SeqCst);
     log::info!("[hid-tap] companion connected");
 
-    // 读循环:hex 行解析(方案 B 首启逐键核对阶段保留逐报文打点)。
+    // 读循环:hex 行解析(通道已真机验收,逐报文打点已移除)。
     let mut parser = TapParser::new();
     let mut pending: Vec<u8> = Vec::new();
     let mut chunk = [0u8; 256];
@@ -288,9 +287,6 @@ fn handle_line(
                 match edge_action(edge) {
                     TapAction::ArmKeyboard { vk, scan, extended, pressed } => {
                         crate::key_gate::arm_tap_edge(vk, scan, extended, pressed);
-                        log::info!(
-                            "[hid-tap] arm vk=0x{vk:02X} scan=0x{scan:02X} ext={extended} pressed={pressed}"
-                        );
                         // 映射由 tap 通道直驱(L1 2026-09-25:被钩子吞掉的按下沿
                         // 不生成 WM_INPUT,单击只剩孤立释放沿——旧"WM_INPUT 照常
                         // 送达"假设被真机证伪)。与按钮通道同构:合成 UsageSet
@@ -300,13 +296,7 @@ fn handle_line(
                             events: vec![usage_set_event(edge.usage, edge.pressed)],
                         });
                     }
-                    TapAction::Button(button) => {
-                        log::info!(
-                            "[hid-tap] button {} usage=0x{:04X} pressed={}",
-                            ButtonMapping::key(button),
-                            edge.usage,
-                            edge.pressed
-                        );
+                    TapAction::Button(_) => {
                         let _ = sender.send(HidInput {
                             device_path: synthetic_device_path(config),
                             events: vec![usage_set_event(edge.usage, edge.pressed)],

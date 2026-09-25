@@ -157,9 +157,11 @@ pub fn media(code: MediaKeyCode) -> Result<()> {
     send(vec![key_input(scan, ext, true)])
 }
 
-/// 音量增减（VK_VOLUME_UP/DOWN）。
+/// 音量增减（VK_VOLUME_UP/DOWN）。L1 依据 WinUser.h：
+/// 0xAE = VK_VOLUME_DOWN、0xAF = VK_VOLUME_UP(2026-09-25 真机对调翻案：
+/// 旧实现 `down→0xAF / !down→0xAE` 正好双向颠倒,按加出减)。
 pub fn volume(down: bool) -> Result<()> {
-    let vk = if down { 0xAF } else { 0xAE };
+    let vk = if down { 0xAE } else { 0xAF };
     let Some((scan, ext)) = vk_to_scan(vk) else {
         return Err(crate::PlatformError::Message("音量键扫描码缺失".into()));
     };

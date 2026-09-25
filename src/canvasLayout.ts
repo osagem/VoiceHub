@@ -29,12 +29,12 @@ interface Placement {
 }
 
 export const PLACEMENTS: Placement[] = [
-  // 左列：自上而下 电源/上/左/主页/返回/菜单。
+  // 左列：自上而下 电源/上/左/返回/主页/菜单（与实物照片同序：back 在 home 上方）。
   { button: "power", side: "left", anchor: { x: 0.242, y: 0.064 }, targetY: 0.08 },
   { button: "up", side: "left", anchor: { x: 0.502, y: 0.136 }, targetY: 0.2 },
   { button: "left", side: "left", anchor: { x: 0.198, y: 0.211 }, targetY: 0.32 },
-  { button: "home", side: "left", anchor: { x: 0.294, y: 0.453 }, targetY: 0.44 },
-  { button: "back", side: "left", anchor: { x: 0.294, y: 0.36 }, targetY: 0.56 },
+  { button: "back", side: "left", anchor: { x: 0.294, y: 0.36 }, targetY: 0.44 },
+  { button: "home", side: "left", anchor: { x: 0.294, y: 0.453 }, targetY: 0.56 },
   { button: "menu", side: "left", anchor: { x: 0.295, y: 0.546 }, targetY: 0.68 },
   // 右列：右/确定/下 + 音量±/TV（照片上与左列 返回/主页/菜单 同行）。
   { button: "right", side: "right", anchor: { x: 0.806, y: 0.211 }, targetY: 0.2 },
